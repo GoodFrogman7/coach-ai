@@ -1,0 +1,154 @@
+---
+session_id: 2025-12-25_12-05-38
+user_id: default_user
+reference_video: djokovic_backhand.mp4
+generated_at: 2025-12-25T12:07:35.417988
+---
+
+# Two-Handed Backhand Analysis Report
+
+## Overview
+
+Great work putting in the reps! I've analyzed your two-handed backhand against a professional reference (Djokovic). Here's what I found and how you can level up your game.
+
+---
+
+## Similarity Score
+
+**Overall Technique Score: 62.4/100**
+
+**Phase-by-Phase Scores:**
+
+- **Preparation**: 76.1/100 ~ Good
+- **Load**: 62.7/100 ~ Good
+- **Contact**: 60.4/100 ~ Good
+- **Follow-through**: 46.7/100 ✗ Needs Work
+
+*Good foundation! Focus on the priority areas below to reach the next level.*
+
+---
+
+## Today's Focus
+
+**Your Top 2 Priorities:**
+
+1. **[Load]** Coil your hips more during the loading phase. This is where you store energy for the shot.
+
+2. **Keep your right elbow closer to your body** for better stability. Think 'compact arms' through the stroke.
+
+*Primary issue: Hip Rotation (deviation: 88.5°) in load phase*
+
+---
+
+## Key Metrics Comparison
+
+| Metric | Your Stroke | Pro Reference | Difference |
+|--------|-------------|---------------|------------|
+| Left Elbow Angle | 119.3° | 92.6° | +26.7° |
+| Right Elbow Angle | 103.3° | 36.4° | +66.9° |
+| Left Knee Angle | 172.6° | 158.0° | +14.5° |
+| Right Knee Angle | 168.6° | 171.0° | -2.3° |
+| Hip Rotation | 1.5° | -7.2° | +8.7° |
+| Spine Lean | -0.1° | 4.4° | -4.5° |
+| Stance Width (norm) | 1.88 | 5.48 | -3.60 |
+
+*Impact frame detected: Frame 220 (you) vs Frame 985 (reference)*
+
+---
+
+## Movement Phase Analysis
+
+Your stroke has been segmented into four phases. Here's how each phase compares:
+
+### Preparation Phase
+
+**Frames**: 0-8 (you) | 0-59 (reference)
+
+| Metric | Your Value | Pro Value | Difference |
+|--------|-----------|-----------|------------|
+| Hip Rotation | -8.1° | -1.3° | -6.8° |
+| Left Elbow Angle | 154.0° | 168.0° | -14.0° |
+| Right Elbow Angle | 153.8° | 149.2° | +4.7° |
+| Left Knee Angle | 154.9° | 162.3° | -7.4° |
+| Right Knee Angle | 160.5° | 163.9° | -3.4° |
+| Spine Lean | -7.4° | 6.4° | -13.8° |
+
+### Load Phase
+
+**Frames**: 9-70 (you) | 60-78 (reference)
+
+| Metric | Your Value | Pro Value | Difference |
+|--------|-----------|-----------|------------|
+| Hip Rotation | 108.9° | 197.5° | -88.5° |
+| Left Elbow Angle | 152.5° | 158.6° | -6.1° |
+| Right Elbow Angle | 156.7° | 152.3° | +4.5° |
+| Left Knee Angle | 164.9° | 152.2° | +12.6° |
+| Right Knee Angle | 147.4° | 150.4° | -3.0° |
+| Spine Lean | -8.3° | 9.4° | -17.7° |
+
+### Contact Phase
+
+**Frames**: 215-225 (you) | 980-990 (reference)
+
+| Metric | Your Value | Pro Value | Difference |
+|--------|-----------|-----------|------------|
+| Hip Rotation | 2.9° | -8.3° | +11.2° |
+| Left Elbow Angle | 113.0° | 84.5° | +28.5° |
+| Right Elbow Angle | 96.0° | 37.5° | +58.5° |
+| Left Knee Angle | 172.9° | 157.6° | +15.3° |
+| Right Knee Angle | 168.2° | 171.1° | -2.9° |
+| Spine Lean | -1.2° | 4.6° | -5.8° |
+
+### Follow-through Phase
+
+**Frames**: 226-256 (you) | 991-1056 (reference)
+
+| Metric | Your Value | Pro Value | Difference |
+|--------|-----------|-----------|------------|
+| Hip Rotation | -3.8° | 211.0° | -214.8° |
+| Left Elbow Angle | 163.4° | 140.3° | +23.2° |
+| Right Elbow Angle | 154.2° | 49.0° | +105.3° |
+| Left Knee Angle | 169.3° | 160.1° | +9.2° |
+| Right Knee Angle | 160.6° | 173.9° | -13.3° |
+| Spine Lean | -5.1° | -0.3° | -4.8° |
+
+---
+
+## All Coaching Cues
+
+Here's the complete list of areas to work on, ranked by priority:
+
+1. **[Load]** Coil your hips more during the loading phase. This is where you store energy for the shot.
+
+2. **Keep your right elbow closer to your body** for better stability. Think 'compact arms' through the stroke.
+
+3. **[Preparation]** Set up with a wider base from the start. Narrow stance limits power generation.
+
+4. **Bend your left elbow more** at contact. Your arm is too straight, reducing control and power transfer.
+
+5. **Rotate your hips more** into the shot. Your upper body is doing most of the work—engage those hips!
+
+---
+
+## Suggested Drills
+
+Try these drills to address the areas we identified:
+
+### Drill 1
+
+**Medicine Ball Rotational Throws**: Stand sideways to a wall, holding a medicine ball (4-8 lbs). Rotate your hips and core explosively to throw the ball against the wall. Catch and repeat. Do 2 sets of 10 each side to build rotational power.
+
+### Drill 2
+
+**Ladder Footwork Drill**: Use an agility ladder (or tape lines). Practice split-stepping into your backhand stance, focusing on consistent foot spacing. Hit shadow strokes at each stop. 5 minutes daily improves footwork consistency.
+
+---
+
+## Final Thoughts
+
+Remember: improvement takes time and consistent practice. Focus on one or two cues at a time rather than trying to fix everything at once. Film yourself regularly to track progress.
+
+Keep grinding—your backhand is going to be a weapon!
+
+---
+*Report generated by Coach AI*

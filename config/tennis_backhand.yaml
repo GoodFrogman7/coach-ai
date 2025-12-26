@@ -1,0 +1,57 @@
+# Coach AI Configuration - Tennis Two-Handed Backhand
+# This is the default configuration that matches the hardcoded behavior
+
+sport: tennis
+movement: two_handed_backhand
+
+# Phase definitions (for segmentation and reporting)
+phases:
+  preparation:
+    name: Preparation
+    description: Setup and early rotation
+  load:
+    name: Load
+    description: Energy storage phase (hip coiling)
+  contact:
+    name: Contact
+    description: Ball impact
+  follow_through:
+    name: Follow-through
+    description: Completion and recovery
+
+# Phase weights for weighted scoring (biomechanical importance)
+phase_weights:
+  preparation: 0.15
+  load: 0.25
+  contact: 0.35      # Highest - ball impact most critical
+  follow_through: 0.25
+
+# Biomechanical metrics to analyze
+metrics:
+  # Joint angles
+  - left_shoulder_angle
+  - right_shoulder_angle
+  - left_elbow_angle
+  - right_elbow_angle
+  - left_knee_angle
+  - right_knee_angle
+  
+  # Rotation and posture
+  - hip_rotation
+  - spine_lean
+  
+  # Stance
+  - stance_width_normalized
+
+# Contact/impact detection signal
+# Options: wrist_speed, hip_rotation, elbow_extension, custom
+contact_detection:
+  method: wrist_speed
+  signal: combined_wrist_speed  # For two-handed strokes
+
+# Reference video metadata
+reference:
+  athlete: Novak Djokovic
+  video: djokovic_backhand.mp4
+  description: Professional two-handed backhand technique
+
