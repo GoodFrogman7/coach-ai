@@ -1,0 +1,6 @@
+{
+  "num_documents": 11,
+  "num_chunks": 21,
+  "vocab_size": 4735,
+  "index_path": "rag"
+}

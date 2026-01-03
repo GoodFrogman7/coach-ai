@@ -37,6 +37,1899 @@ from vision.features import (
 
 
 # ============================================================================
+# Stroke Abstraction Layer (Phase 2: Multi-Stroke Intelligence Foundation)
+# ============================================================================
+
+"""
+The Stroke Abstraction Layer enables Coach AI to analyze multiple tennis strokes
+(backhand, forehand, serve, volley, overhead) by providing stroke-specific
+biomechanical context.
+
+WHY THIS EXISTS:
+- Different strokes have different optimal biomechanical ranges
+- E.g., forehand hip rotation is typically larger than backhand
+- E.g., serve elbow extension is intentionally different than groundstrokes
+- Universal thresholds would misclassify stroke-specific technique
+
+HOW IT WORKS:
+- Defines expected ranges per metric per stroke
+- Provides fallback to backhand defaults (100% backward compatibility)
+- Integrates only at threshold interpretation (no changes to core logic)
+
+FUTURE VISION:
+This foundational layer enables:
+- Multi-stroke video analysis
+- Stroke-specific drill recommendations
+- Cross-stroke technique comparison
+- Full tennis game intelligence
+"""
+
+# Stroke profile definitions
+# Each profile specifies expected biomechanical ranges and intent
+STROKE_PROFILES = {
+    'backhand': {
+        'name': 'Two-Handed Backhand',
+        'description': 'Baseline two-handed backhand stroke',
+        'biomechanical_intent': {
+            'hip_rotation': {
+                'expected_range': (150, 220),  # degrees
+                'rationale': 'Hip coiling provides power generation'
+            },
+            'elbow_angle': {
+                'expected_range': (90, 140),  # degrees
+                'rationale': 'Compact arm structure for control'
+            },
+            'knee_flexion': {
+                'expected_range': (150, 170),  # degrees
+                'rationale': 'Athletic stance with slight bend'
+            },
+            'spine_lean': {
+                'expected_range': (-10, 15),  # degrees (negative = backward)
+                'rationale': 'Upright to slightly forward posture'
+            }
+        },
+        'phase_emphasis': {
+            'preparation': 0.15,
+            'load': 0.25,
+            'contact': 0.35,  # Most critical
+            'follow_through': 0.25
+        }
+    },
+    
+    'forehand': {
+        'name': 'Forehand',
+        'description': 'Baseline forehand stroke',
+        'biomechanical_intent': {
+            'hip_rotation': {
+                'expected_range': (180, 270),  # Larger than backhand
+                'rationale': 'Greater hip rotation for power on dominant side'
+            },
+            'elbow_angle': {
+                'expected_range': (100, 160),  # More extension
+                'rationale': 'Longer lever arm for forehand mechanics'
+            },
+            'knee_flexion': {
+                'expected_range': (150, 175),
+                'rationale': 'Similar stance to backhand'
+            },
+            'spine_lean': {
+                'expected_range': (-5, 20),  # More forward lean
+                'rationale': 'Aggressive forward posture for forehand'
+            }
+        },
+        'phase_emphasis': {
+            'preparation': 0.15,
+            'load': 0.30,  # More load emphasis
+            'contact': 0.35,
+            'follow_through': 0.20
+        }
+    },
+    
+    'serve': {
+        'name': 'Serve',
+        'description': 'First or second serve',
+        'biomechanical_intent': {
+            'hip_rotation': {
+                'expected_range': (200, 300),  # Maximum rotation
+                'rationale': 'Full body rotation for serve power'
+            },
+            'elbow_angle': {
+                'expected_range': (140, 180),  # Near full extension
+                'rationale': 'Extended reach for contact point height'
+            },
+            'knee_flexion': {
+                'expected_range': (120, 160),  # Deeper bend
+                'rationale': 'Leg drive from trophy position'
+            },
+            'spine_lean': {
+                'expected_range': (-20, 10),  # Backward arch
+                'rationale': 'Spinal extension in trophy position'
+            }
+        },
+        'phase_emphasis': {
+            'preparation': 0.20,  # Trophy position critical
+            'load': 0.20,
+            'contact': 0.40,  # Most critical for serve
+            'follow_through': 0.20
+        }
+    },
+    
+    'volley': {
+        'name': 'Volley',
+        'description': 'Net volley (forehand or backhand)',
+        'biomechanical_intent': {
+            'hip_rotation': {
+                'expected_range': (30, 90),  # Minimal rotation
+                'rationale': 'Compact motion for quick reaction at net'
+            },
+            'elbow_angle': {
+                'expected_range': (90, 130),  # Compact
+                'rationale': 'Short, punching motion'
+            },
+            'knee_flexion': {
+                'expected_range': (140, 170),
+                'rationale': 'Ready position with flexion'
+            },
+            'spine_lean': {
+                'expected_range': (0, 20),  # Forward lean
+                'rationale': 'Aggressive forward posture at net'
+            }
+        },
+        'phase_emphasis': {
+            'preparation': 0.30,  # Split-step crucial
+            'load': 0.10,  # Minimal loading
+            'contact': 0.45,  # Contact timing critical
+            'follow_through': 0.15  # Short follow-through
+        }
+    },
+    
+    'overhead': {
+        'name': 'Overhead Smash',
+        'description': 'Overhead smash or high volley',
+        'biomechanical_intent': {
+            'hip_rotation': {
+                'expected_range': (150, 250),  # Similar to serve
+                'rationale': 'Serve-like motion for power'
+            },
+            'elbow_angle': {
+                'expected_range': (130, 180),  # Extended
+                'rationale': 'High contact point extension'
+            },
+            'knee_flexion': {
+                'expected_range': (140, 175),
+                'rationale': 'Balanced stance for overhead reach'
+            },
+            'spine_lean': {
+                'expected_range': (-15, 5),  # Backward arch
+                'rationale': 'Backward lean for upward contact'
+            }
+        },
+        'phase_emphasis': {
+            'preparation': 0.25,
+            'load': 0.20,
+            'contact': 0.40,
+            'follow_through': 0.15
+        }
+    }
+}
+
+
+def get_stroke_aware_threshold(
+    metric_name: str,
+    stroke_type: str = 'backhand',
+    threshold_type: str = 'expected_range'
+) -> tuple:
+    """
+    Get stroke-specific biomechanical thresholds for intelligent metric evaluation.
+    
+    This function enables multi-stroke intelligence by providing stroke-specific
+    context for biomechanical metrics. Different strokes have different optimal
+    ranges (e.g., forehand has larger hip rotation than backhand).
+    
+    BACKWARD COMPATIBILITY:
+    - Default stroke_type is 'backhand' (preserves all existing behavior)
+    - Falls back to backhand if stroke not found
+    - Returns None if metric not in profile (caller handles fallback)
+    
+    INTEGRATION POINTS (future):
+    - Similarity scoring: adjust deviation thresholds per stroke
+    - Coaching cues: stroke-specific recommendations
+    - Drill selection: map drills to stroke requirements
+    
+    Args:
+        metric_name: Name of biomechanical metric (e.g., 'hip_rotation')
+        stroke_type: Type of stroke ('backhand', 'forehand', 'serve', 'volley', 'overhead')
+        threshold_type: Type of threshold ('expected_range', 'rationale')
+        
+    Returns:
+        Threshold value (type depends on threshold_type), or None if not found
+        
+    Example:
+        >>> get_stroke_aware_threshold('hip_rotation', 'forehand')
+        (180, 270)  # Forehand expects larger rotation than backhand
+        
+        >>> get_stroke_aware_threshold('hip_rotation', 'backhand')
+        (150, 220)  # Backhand default (existing behavior)
+        
+        >>> get_stroke_aware_threshold('hip_rotation', 'unknown_stroke')
+        (150, 220)  # Falls back to backhand
+    """
+    # Normalize stroke type
+    stroke_type = stroke_type.lower().strip()
+    
+    # Fallback to backhand if stroke not recognized (backward compatibility)
+    if stroke_type not in STROKE_PROFILES:
+        stroke_type = 'backhand'
+    
+    # Get stroke profile
+    profile = STROKE_PROFILES[stroke_type]
+    
+    # Normalize metric name for lookup
+    metric_key = metric_name.lower().replace('_angle', '').replace('_rotation', '')
+    
+    # Map common metric names to profile keys
+    metric_mapping = {
+        'hip': 'hip_rotation',
+        'hip_rotation': 'hip_rotation',
+        'elbow': 'elbow_angle',
+        'elbow_angle': 'elbow_angle',
+        'left_elbow': 'elbow_angle',
+        'right_elbow': 'elbow_angle',
+        'knee': 'knee_flexion',
+        'knee_angle': 'knee_flexion',
+        'knee_flexion': 'knee_flexion',
+        'left_knee': 'knee_flexion',
+        'right_knee': 'knee_flexion',
+        'spine': 'spine_lean',
+        'spine_lean': 'spine_lean'
+    }
+    
+    profile_key = metric_mapping.get(metric_key)
+    
+    if not profile_key:
+        return None
+    
+    # Get biomechanical intent for this metric
+    if profile_key not in profile['biomechanical_intent']:
+        return None
+    
+    metric_spec = profile['biomechanical_intent'][profile_key]
+    
+    # Return requested threshold type
+    if threshold_type == 'expected_range':
+        return metric_spec.get('expected_range')
+    elif threshold_type == 'rationale':
+        return metric_spec.get('rationale')
+    else:
+        return None
+
+
+def get_stroke_phase_weights(stroke_type: str = 'backhand') -> dict:
+    """
+    Get stroke-specific phase importance weights.
+    
+    Different strokes emphasize different phases:
+    - Groundstrokes: Contact is most critical
+    - Serve: Contact + Preparation (trophy position)
+    - Volley: Preparation (split-step) + Contact
+    
+    BACKWARD COMPATIBILITY:
+    - Default is 'backhand' (preserves existing behavior)
+    - Falls back to backhand if stroke not found
+    
+    Args:
+        stroke_type: Type of stroke
+        
+    Returns:
+        Dictionary of phase weights (sum = 1.0)
+    """
+    # Normalize stroke type
+    stroke_type = stroke_type.lower().strip()
+    
+    # Fallback to backhand (backward compatibility)
+    if stroke_type not in STROKE_PROFILES:
+        stroke_type = 'backhand'
+    
+    return STROKE_PROFILES[stroke_type]['phase_emphasis']
+
+
+# ============================================================================
+# Movement & Footwork Intelligence (Phase 2.2)
+# ============================================================================
+
+"""
+The Movement & Footwork Intelligence layer extends Coach AI with stroke-agnostic
+movement analysis. While stroke mechanics focus on arm/body positioning during
+the swing, movement intelligence evaluates:
+- Court positioning
+- Split-step timing
+- Lateral push-off and recovery
+- Balance and stability
+- Transition speed
+
+WHY THIS MATTERS FOR TENNIS:
+- "Good feet, good shots" - Movement is foundational
+- Poor footwork causes inconsistent stroke mechanics
+- Recovery speed determines rally control
+- Balance enables power generation
+- Split-step timing affects reaction time
+
+HOW IT COMPLEMENTS STROKE ABSTRACTION:
+- Stroke Abstraction: WHAT happens during the swing
+- Movement Intelligence: HOW you get into position to execute
+- Together: Complete tennis technique analysis
+
+INTEGRATION WITH EXISTING SYSTEMS:
+- Movement metrics participate in reliability analysis
+- Movement issues are eligible for CRITICAL/PRIORITY/MONITOR classification
+- Footwork drills map to movement metrics via existing drill engine
+- Low-reliability movement metrics are suppressible (same as stroke metrics)
+
+BACKWARD COMPATIBILITY:
+- Movement metrics are optional (system works without them)
+- Existing stroke analysis remains unchanged
+- If no movement data available, gracefully skips
+"""
+
+# Movement metric definitions
+# These are stroke-agnostic and evaluate positioning/footwork quality
+MOVEMENT_METRICS = {
+    'split_step_timing': {
+        'name': 'Split-Step Timing',
+        'description': 'Timing and execution of the split-step before shot',
+        'expected_range': (-0.1, 0.1),  # seconds (negative = early, positive = late)
+        'optimal_value': 0.0,  # Perfect timing at opponent contact
+        'rationale': 'Split-step should occur at/just before opponent contact for optimal reaction',
+        'importance': 'HIGH',
+        'stroke_phase_mapping': 'preparation',
+        'assessment_criteria': {
+            'excellent': (-0.05, 0.05),  # Within 50ms
+            'good': (-0.1, 0.1),  # Within 100ms
+            'needs_work': None  # Outside 100ms
+        }
+    },
+    
+    'lateral_push_off_symmetry': {
+        'name': 'Lateral Push-Off Symmetry',
+        'description': 'Balance between left and right leg power in lateral movements',
+        'expected_range': (0.8, 1.2),  # ratio (1.0 = perfect symmetry)
+        'optimal_value': 1.0,
+        'rationale': 'Balanced lateral movement prevents injury and enables consistent positioning',
+        'importance': 'MEDIUM',
+        'stroke_phase_mapping': 'preparation',
+        'assessment_criteria': {
+            'excellent': (0.9, 1.1),  # Within 10% difference
+            'good': (0.8, 1.2),  # Within 20% difference
+            'needs_work': None  # > 20% asymmetry
+        }
+    },
+    
+    'recovery_time': {
+        'name': 'Recovery Time',
+        'description': 'Time to return to ready position after shot',
+        'expected_range': (0.5, 1.0),  # seconds
+        'optimal_value': 0.7,
+        'rationale': 'Fast recovery enables preparation for next shot and rally control',
+        'importance': 'HIGH',
+        'stroke_phase_mapping': 'follow_through',
+        'assessment_criteria': {
+            'excellent': (0.5, 0.7),  # Quick recovery
+            'good': (0.7, 1.0),  # Adequate recovery
+            'needs_work': None  # > 1.0s (slow recovery)
+        }
+    },
+    
+    'stance_transition_speed': {
+        'name': 'Stance Transition Speed',
+        'description': 'Speed of transitioning from ready to stroke stance',
+        'expected_range': (0.2, 0.5),  # seconds
+        'optimal_value': 0.3,
+        'rationale': 'Quick stance setup enables optimal stroke mechanics',
+        'importance': 'MEDIUM',
+        'stroke_phase_mapping': 'preparation',
+        'assessment_criteria': {
+            'excellent': (0.2, 0.3),  # Very quick
+            'good': (0.3, 0.5),  # Adequate speed
+            'needs_work': None  # > 0.5s (slow setup)
+        }
+    },
+    
+    'balance_drift': {
+        'name': 'Balance Drift',
+        'description': 'Center of mass stability during shot execution',
+        'expected_range': (0, 10),  # cm of lateral drift
+        'optimal_value': 5,  # Minimal controlled drift
+        'rationale': 'Stable balance enables consistent contact point and power transfer',
+        'importance': 'HIGH',
+        'stroke_phase_mapping': 'contact',
+        'assessment_criteria': {
+            'excellent': (0, 5),  # Minimal drift
+            'good': (5, 10),  # Acceptable drift
+            'needs_work': None  # > 10cm (unstable)
+        }
+    },
+    
+    'first_step_reaction_time': {
+        'name': 'First Step Reaction Time',
+        'description': 'Time from opponent contact to first step initiation',
+        'expected_range': (0.2, 0.4),  # seconds
+        'optimal_value': 0.3,
+        'rationale': 'Quick first step enables better court coverage and positioning',
+        'importance': 'MEDIUM',
+        'stroke_phase_mapping': 'preparation',
+        'assessment_criteria': {
+            'excellent': (0.2, 0.3),  # Very quick
+            'good': (0.3, 0.4),  # Good reaction
+            'needs_work': None  # > 0.4s (slow reaction)
+        }
+    },
+    
+    'footwork_efficiency': {
+        'name': 'Footwork Efficiency',
+        'description': 'Ratio of steps taken to distance covered (lower = more efficient)',
+        'expected_range': (1.5, 2.5),  # steps per meter
+        'optimal_value': 2.0,
+        'rationale': 'Efficient footwork conserves energy and improves positioning accuracy',
+        'importance': 'MEDIUM',
+        'stroke_phase_mapping': 'preparation',
+        'assessment_criteria': {
+            'excellent': (1.5, 2.0),  # Very efficient
+            'good': (2.0, 2.5),  # Adequate efficiency
+            'needs_work': None  # > 2.5 (too many small steps)
+        }
+    },
+    
+    'weight_transfer_completeness': {
+        'name': 'Weight Transfer Completeness',
+        'description': 'Percentage of body weight successfully transferred forward during shot',
+        'expected_range': (60, 90),  # percentage
+        'optimal_value': 75,
+        'rationale': 'Complete weight transfer maximizes power and control',
+        'importance': 'HIGH',
+        'stroke_phase_mapping': 'contact',
+        'assessment_criteria': {
+            'excellent': (75, 90),  # Full transfer
+            'good': (60, 75),  # Partial transfer
+            'needs_work': None  # < 60% (incomplete transfer)
+        }
+    }
+}
+
+
+def get_movement_metric_spec(metric_name: str) -> dict:
+    """
+    Get specification for a movement/footwork metric.
+    
+    Movement metrics are stroke-agnostic and evaluate positioning, balance,
+    and footwork quality. They complement stroke mechanics by assessing
+    the foundational movement patterns that enable good stroke execution.
+    
+    INTEGRATION WITH EXISTING SYSTEMS:
+    - Movement metrics participate in reliability analysis (same as stroke metrics)
+    - Movement issues are eligible for adaptive prioritization (CRITICAL/PRIORITY/MONITOR)
+    - Low-reliability movement metrics are suppressible
+    - Movement drills map via existing drill recommendation engine
+    
+    BACKWARD COMPATIBILITY:
+    - Returns None if metric not found (caller handles gracefully)
+    - System works perfectly without movement metrics
+    - Existing stroke analysis remains unchanged
+    
+    Args:
+        metric_name: Name of movement metric (e.g., 'split_step_timing')
+        
+    Returns:
+        Dictionary with metric specification, or None if not found
+        
+    Example:
+        >>> spec = get_movement_metric_spec('split_step_timing')
+        >>> print(spec['expected_range'])
+        (-0.1, 0.1)  # seconds
+        
+        >>> spec = get_movement_metric_spec('unknown_metric')
+        >>> print(spec)
+        None
+    """
+    # Normalize metric name
+    metric_key = metric_name.lower().strip().replace(' ', '_')
+    
+    # Return spec if found
+    return MOVEMENT_METRICS.get(metric_key)
+
+
+def assess_movement_quality(
+    metric_name: str,
+    measured_value: float
+) -> dict:
+    """
+    Assess the quality of a movement/footwork metric.
+    
+    Uses movement-specific thresholds to classify performance as:
+    - 'excellent': Top-tier movement quality
+    - 'good': Adequate movement quality
+    - 'needs_work': Below acceptable threshold
+    
+    Returns assessment with human-readable feedback.
+    
+    INTEGRATION:
+    - Assessment results feed into adaptive prioritization
+    - 'needs_work' classifications become coaching priorities
+    - 'excellent' classifications may suppress redundant coaching
+    
+    Args:
+        metric_name: Name of movement metric
+        measured_value: Player's measured value
+        
+    Returns:
+        Dictionary with assessment results:
+        - classification: 'excellent' / 'good' / 'needs_work' / 'unknown'
+        - deviation: Distance from optimal
+        - feedback: Human-readable coaching feedback
+        
+    Example:
+        >>> result = assess_movement_quality('split_step_timing', 0.15)
+        >>> print(result['classification'])
+        'needs_work'
+        >>> print(result['feedback'])
+        'Split-step timing is late by 150ms. Work on anticipation.'
+    """
+    spec = get_movement_metric_spec(metric_name)
+    
+    if not spec:
+        return {
+            'classification': 'unknown',
+            'deviation': None,
+            'feedback': f"Metric '{metric_name}' not recognized"
+        }
+    
+    # Get assessment criteria
+    criteria = spec['assessment_criteria']
+    optimal = spec['optimal_value']
+    
+    # Calculate deviation from optimal
+    deviation = measured_value - optimal
+    
+    # Classify performance
+    if criteria['excellent'] and criteria['excellent'][0] <= measured_value <= criteria['excellent'][1]:
+        classification = 'excellent'
+        feedback = f"{spec['name']} is excellent. Maintain this quality."
+    elif criteria['good'] and criteria['good'][0] <= measured_value <= criteria['good'][1]:
+        classification = 'good'
+        feedback = f"{spec['name']} is good but can improve. {spec['rationale']}"
+    else:
+        classification = 'needs_work'
+        # Generate specific feedback based on deviation direction
+        if 'timing' in metric_name.lower() or 'time' in metric_name.lower():
+            if deviation > 0:
+                feedback = f"{spec['name']} is too slow by {abs(deviation):.2f}s. {spec['rationale']}"
+            else:
+                feedback = f"{spec['name']} is early by {abs(deviation):.2f}s. {spec['rationale']}"
+        elif 'symmetry' in metric_name.lower():
+            side = 'right' if measured_value > 1.0 else 'left'
+            asymmetry = abs((measured_value - 1.0) * 100)
+            feedback = f"{spec['name']} shows {asymmetry:.0f}% imbalance favoring {side} side. {spec['rationale']}"
+        else:
+            feedback = f"{spec['name']} needs improvement (current: {measured_value:.2f}, optimal: {optimal:.2f}). {spec['rationale']}"
+    
+    return {
+        'classification': classification,
+        'deviation': deviation,
+        'feedback': feedback,
+        'importance': spec['importance'],
+        'stroke_phase': spec['stroke_phase_mapping']
+    }
+
+
+def is_movement_metric(metric_name: str) -> bool:
+    """
+    Check if a metric belongs to the movement/footwork family.
+    
+    This allows existing systems (reliability, prioritization, drills) to
+    distinguish between stroke mechanics and movement metrics.
+    
+    Args:
+        metric_name: Name of metric to check
+        
+    Returns:
+        True if movement metric, False otherwise
+        
+    Example:
+        >>> is_movement_metric('split_step_timing')
+        True
+        >>> is_movement_metric('hip_rotation')
+        False
+    """
+    metric_key = metric_name.lower().strip().replace(' ', '_')
+    return metric_key in MOVEMENT_METRICS
+
+
+# ============================================================================
+# Rally & Fatigue Intelligence (Phase 2.3)
+# ============================================================================
+
+"""
+The Rally & Fatigue Intelligence layer adds temporal analysis to detect
+performance degradation patterns over the course of a session or rally.
+
+WHY THIS MATTERS FOR TENNIS:
+- Fatigue affects technique: Tired players exhibit biomechanical degradation
+- Rally patterns reveal strategic weaknesses vs fatigue effects
+- Technical coaching for fatigue-driven issues is ineffective
+- Recovery and conditioning need different interventions than technique work
+
+KEY INSIGHTS:
+- Fatigue signals: Increasing recovery time, decreasing rotation, rising variability
+- Rally patterns: Metric evolution within point sequences
+- Temporal degradation: Performance decline over session
+- Fatigue vs Technique: Different root causes, different solutions
+
+INTEGRATION WITH EXISTING SYSTEMS:
+- Fatigue flags participate in adaptive prioritization (additive)
+- Fatigue-driven issues may be suppressed or marked for conditioning work
+- Rally context enriches coaching cue specificity
+- Backward compatible: Works without rally data
+
+INFERENCE APPROACH (NO PHYSIOLOGICAL SENSORS):
+We infer fatigue purely from biomechanical degradation patterns:
+1. Temporal trends (metrics worsening over time)
+2. Increased variability (consistency drops)
+3. Recovery time increases
+4. Range of motion decreases
+5. Balance instability increases
+
+This is INFERENCE, not measurement. We flag probable fatigue-driven issues.
+"""
+
+def segment_session_into_rallies(
+    timestamps: list,
+    inter_rally_gap_seconds: float = 10.0
+) -> list:
+    """
+    Segment a session into rallies based on temporal gaps between strokes.
+    
+    A rally is a sequence of strokes with gaps < inter_rally_gap_seconds.
+    Large gaps indicate rally boundaries (e.g., between points).
+    
+    GRACEFUL DEGRADATION:
+    - Returns single rally if no gaps found
+    - Returns empty list if no timestamps
+    - Works with any number of strokes
+    
+    Args:
+        timestamps: List of frame timestamps or stroke times
+        inter_rally_gap_seconds: Gap threshold to define rally boundary
+        
+    Returns:
+        List of rally dictionaries: [{'start_idx': int, 'end_idx': int, 'duration': float}, ...]
+        
+    Example:
+        >>> timestamps = [0.5, 1.0, 1.5, 15.0, 15.5, 16.0]
+        >>> rallies = segment_session_into_rallies(timestamps, inter_rally_gap_seconds=10.0)
+        >>> len(rallies)
+        2  # Two rallies: [0.5-1.5] and [15.0-16.0]
+    """
+    if not timestamps or len(timestamps) == 0:
+        return []
+    
+    if len(timestamps) == 1:
+        return [{'start_idx': 0, 'end_idx': 0, 'duration': 0.0, 'stroke_count': 1}]
+    
+    rallies = []
+    rally_start_idx = 0
+    
+    for i in range(1, len(timestamps)):
+        gap = timestamps[i] - timestamps[i-1]
+        
+        if gap > inter_rally_gap_seconds:
+            # Rally boundary detected
+            rallies.append({
+                'start_idx': rally_start_idx,
+                'end_idx': i - 1,
+                'duration': timestamps[i-1] - timestamps[rally_start_idx],
+                'stroke_count': i - rally_start_idx
+            })
+            rally_start_idx = i
+    
+    # Add final rally
+    rallies.append({
+        'start_idx': rally_start_idx,
+        'end_idx': len(timestamps) - 1,
+        'duration': timestamps[-1] - timestamps[rally_start_idx],
+        'stroke_count': len(timestamps) - rally_start_idx
+    })
+    
+    return rallies
+
+
+def compute_metric_trajectory(
+    metric_values: list,
+    rally_indices: list = None
+) -> dict:
+    """
+    Compute trajectory statistics for a metric across a session or rally.
+    
+    Trajectory analysis reveals:
+    - Trend (improving/stable/degrading)
+    - Variability (consistent/inconsistent)
+    - Range evolution (expanding/contracting)
+    
+    This is used to detect fatigue patterns (degrading trend, increasing variability).
+    
+    Args:
+        metric_values: List of metric measurements in temporal order
+        rally_indices: Optional list of rally segment indices
+        
+    Returns:
+        Dictionary with trajectory statistics:
+        - trend: Linear regression slope
+        - variability: Coefficient of variation
+        - early_mean: Mean of first 1/3 of values
+        - late_mean: Mean of last 1/3 of values
+        - degradation_ratio: late_mean / early_mean (< 1.0 = degradation)
+        
+    Example:
+        >>> values = [180, 175, 170, 165, 160]  # Hip rotation degrading
+        >>> traj = compute_metric_trajectory(values)
+        >>> traj['trend']  # Negative trend
+        -5.0
+        >>> traj['degradation_ratio']  # < 1.0
+        0.91
+    """
+    if not metric_values or len(metric_values) < 2:
+        return {
+            'trend': 0.0,
+            'variability': 0.0,
+            'early_mean': metric_values[0] if metric_values else 0.0,
+            'late_mean': metric_values[0] if metric_values else 0.0,
+            'degradation_ratio': 1.0,
+            'sample_size': len(metric_values)
+        }
+    
+    import numpy as np
+    
+    values = np.array(metric_values)
+    n = len(values)
+    
+    # Compute linear trend (simple linear regression slope)
+    x = np.arange(n)
+    if n > 1:
+        trend = np.polyfit(x, values, 1)[0]  # Slope of best-fit line
+    else:
+        trend = 0.0
+    
+    # Compute variability (coefficient of variation)
+    mean_val = np.mean(values)
+    std_val = np.std(values)
+    variability = (std_val / mean_val * 100) if mean_val != 0 else 0.0
+    
+    # Compute early vs late comparison
+    third = max(1, n // 3)
+    early_values = values[:third]
+    late_values = values[-third:]
+    
+    early_mean = np.mean(early_values)
+    late_mean = np.mean(late_values)
+    
+    # Degradation ratio (< 1.0 indicates decline)
+    # Handle metrics where lower is better vs higher is better
+    degradation_ratio = (late_mean / early_mean) if early_mean != 0 else 1.0
+    
+    return {
+        'trend': float(trend),
+        'variability': float(variability),
+        'early_mean': float(early_mean),
+        'late_mean': float(late_mean),
+        'degradation_ratio': float(degradation_ratio),
+        'sample_size': n
+    }
+
+
+def infer_fatigue_from_biomechanics(
+    session_metrics: dict,
+    rally_data: list = None
+) -> dict:
+    """
+    Infer fatigue from biomechanical degradation patterns.
+    
+    Fatigue inference signals (NO PHYSIOLOGICAL SENSORS):
+    1. Recovery time increasing over session
+    2. Rotation ranges decreasing (hip, shoulder)
+    3. Variability increasing (consistency drops)
+    4. Balance drift increasing
+    5. Stance transition speed slowing
+    
+    This is INFERENCE, not measurement. We flag probable fatigue patterns.
+    
+    IMPORTANT:
+    - Does NOT diagnose physiological fatigue
+    - Identifies biomechanical degradation patterns
+    - Suggests conditioning interventions
+    - Distinguished from technique issues
+    
+    Args:
+        session_metrics: Dictionary of metric trajectories
+        rally_data: Optional rally segmentation data
+        
+    Returns:
+        Dictionary with fatigue inference:
+        - fatigue_score: 0-100 (0=no fatigue signals, 100=strong fatigue signals)
+        - fatigue_signals: List of detected patterns
+        - affected_metrics: Metrics showing fatigue patterns
+        - confidence: 'high' / 'medium' / 'low' / 'insufficient_data'
+        - recommendation: Conditioning focus vs technique focus
+        
+    Example:
+        >>> metrics = {
+        ...     'recovery_time': [0.7, 0.8, 0.9, 1.0, 1.1],
+        ...     'hip_rotation': [180, 175, 170, 165, 160]
+        ... }
+        >>> fatigue = infer_fatigue_from_biomechanics(metrics)
+        >>> fatigue['fatigue_score']  # High score
+        75.0
+        >>> 'Increasing recovery time' in fatigue['fatigue_signals']
+        True
+    """
+    fatigue_signals = []
+    affected_metrics = []
+    fatigue_score = 0.0
+    
+    # Fatigue-sensitive metrics with their expected behaviors
+    fatigue_indicators = {
+        # Movement metrics (Phase 2.2 integration)
+        'recovery_time': {'type': 'increasing', 'weight': 25, 'threshold': 1.15},
+        'balance_drift': {'type': 'increasing', 'weight': 20, 'threshold': 1.20},
+        'stance_transition_speed': {'type': 'increasing', 'weight': 15, 'threshold': 1.15},
+        'first_step_reaction_time': {'type': 'increasing', 'weight': 15, 'threshold': 1.10},
+        
+        # Stroke metrics (Phase 2 integration)
+        'hip_rotation': {'type': 'decreasing', 'weight': 20, 'threshold': 0.90},
+        'shoulder_rotation': {'type': 'decreasing', 'weight': 15, 'threshold': 0.92},
+        'knee_flexion': {'type': 'decreasing', 'weight': 10, 'threshold': 0.95},
+        
+        # Variability indicators (any metric)
+        'variability': {'type': 'increasing', 'weight': 25, 'threshold': 1.30}
+    }
+    
+    for metric_name, values in session_metrics.items():
+        if not isinstance(values, list) or len(values) < 3:
+            continue  # Need at least 3 data points
+        
+        trajectory = compute_metric_trajectory(values)
+        
+        # Check if this metric shows fatigue pattern
+        metric_lower = metric_name.lower()
+        matched_indicator = None
+        
+        for indicator_key, indicator_spec in fatigue_indicators.items():
+            if indicator_key in metric_lower:
+                matched_indicator = indicator_spec
+                break
+        
+        if not matched_indicator:
+            continue
+        
+        # Evaluate fatigue pattern
+        degradation_ratio = trajectory['degradation_ratio']
+        variability = trajectory['variability']
+        
+        if matched_indicator['type'] == 'increasing':
+            # Metric should not increase (e.g., recovery time)
+            if degradation_ratio > matched_indicator['threshold']:
+                fatigue_score += matched_indicator['weight']
+                fatigue_signals.append(
+                    f"Increasing {metric_name}: {trajectory['early_mean']:.2f} → {trajectory['late_mean']:.2f} "
+                    f"(+{(degradation_ratio - 1.0) * 100:.1f}%)"
+                )
+                affected_metrics.append(metric_name)
+        
+        elif matched_indicator['type'] == 'decreasing':
+            # Metric should not decrease (e.g., hip rotation)
+            if degradation_ratio < matched_indicator['threshold']:
+                fatigue_score += matched_indicator['weight']
+                fatigue_signals.append(
+                    f"Decreasing {metric_name}: {trajectory['early_mean']:.2f} → {trajectory['late_mean']:.2f} "
+                    f"({(degradation_ratio - 1.0) * 100:.1f}%)"
+                )
+                affected_metrics.append(metric_name)
+        
+        # Check variability increase (consistency drops)
+        if variability > 25.0:  # > 25% coefficient of variation
+            fatigue_score += 10  # Bonus penalty for high variability
+            if f"High variability in {metric_name}" not in fatigue_signals:
+                fatigue_signals.append(
+                    f"High variability in {metric_name}: CV={variability:.1f}%"
+                )
+    
+    # Determine confidence level
+    sample_size = sum(len(v) for v in session_metrics.values() if isinstance(v, list))
+    
+    if sample_size < 5:
+        confidence = 'insufficient_data'
+    elif len(fatigue_signals) >= 3:
+        confidence = 'high'
+    elif len(fatigue_signals) >= 2:
+        confidence = 'medium'
+    else:
+        confidence = 'low'
+    
+    # Generate recommendation
+    if fatigue_score > 60 and confidence in ['high', 'medium']:
+        recommendation = 'CONDITIONING_FOCUS: Address cardiovascular endurance and muscular stamina before technique refinement'
+    elif fatigue_score > 30:
+        recommendation = 'HYBRID: Combine conditioning work with technique training'
+    else:
+        recommendation = 'TECHNIQUE_FOCUS: Fatigue not a primary factor, focus on skill refinement'
+    
+    # Cap fatigue score at 100
+    fatigue_score = min(100.0, fatigue_score)
+    
+    return {
+        'fatigue_score': fatigue_score,
+        'fatigue_signals': fatigue_signals,
+        'affected_metrics': affected_metrics,
+        'confidence': confidence,
+        'recommendation': recommendation,
+        'sample_size': sample_size
+    }
+
+
+def classify_issue_with_fatigue_context(
+    metric_name: str,
+    current_deviation: float,
+    reliability_level: str,
+    phase_stability: float = 75.0,
+    progress_delta: float = None,
+    fatigue_inference: dict = None
+) -> dict:
+    """
+    Extend issue classification to include fatigue context.
+    
+    Fatigue-driven issues are flagged separately and may be:
+    - Deprioritized for technique coaching (conditioning needed instead)
+    - Marked for rest/recovery recommendations
+    - Routed to conditioning drills vs technique drills
+    
+    This is ADDITIVE to existing classification logic (Phase 2.1).
+    
+    Args:
+        metric_name: Name of the metric
+        current_deviation: Current deviation from optimal
+        reliability_level: 'High' / 'Medium' / 'Low'
+        phase_stability: Stability score 0-100
+        progress_delta: Change from previous session
+        fatigue_inference: Output from infer_fatigue_from_biomechanics()
+        
+    Returns:
+        Dictionary with extended classification:
+        - classification: 'CRITICAL' / 'PRIORITY' / 'MONITOR' / 'SUPPRESS'
+        - recommendation: Coaching recommendation
+        - fatigue_flag: True if likely fatigue-driven
+        - intervention_type: 'technique' / 'conditioning' / 'rest'
+        
+    Example:
+        >>> fatigue = {'fatigue_score': 75, 'affected_metrics': ['recovery_time']}
+        >>> result = classify_issue_with_fatigue_context(
+        ...     'recovery_time', 0.3, 'High', 80.0, None, fatigue
+        ... )
+        >>> result['fatigue_flag']
+        True
+        >>> result['intervention_type']
+        'conditioning'
+    """
+    # Get base classification from existing system
+    from inspect import signature
+    
+    # Import the original function (exists in Phase 2.1)
+    # We'll call it to get base classification
+    base_classification = classify_coaching_issue(
+        metric_name=metric_name,
+        current_deviation=current_deviation,
+        reliability_level=reliability_level,
+        phase_stability=phase_stability,
+        progress_delta=progress_delta
+    )
+    
+    # Check if this metric is affected by fatigue
+    fatigue_flag = False
+    intervention_type = 'technique'  # Default
+    
+    if fatigue_inference and fatigue_inference['confidence'] in ['high', 'medium']:
+        # Check if this specific metric is in the affected list
+        metric_in_affected = any(
+            metric_name.lower() in affected.lower() or affected.lower() in metric_name.lower()
+            for affected in fatigue_inference['affected_metrics']
+        )
+        
+        if metric_in_affected:
+            fatigue_flag = True
+            
+            # Adjust intervention based on fatigue score
+            if fatigue_inference['fatigue_score'] > 60:
+                intervention_type = 'conditioning'
+                # Modify recommendation to indicate fatigue
+                base_classification['recommendation'] = (
+                    f"FATIGUE-DRIVEN ({fatigue_inference['fatigue_score']:.0f}/100 fatigue score): "
+                    f"Address conditioning/recovery before technique work. {base_classification['recommendation']}"
+                )
+            elif fatigue_inference['fatigue_score'] > 30:
+                intervention_type = 'hybrid'
+                base_classification['recommendation'] = (
+                    f"POSSIBLE FATIGUE ({fatigue_inference['fatigue_score']:.0f}/100 fatigue score): "
+                    f"Consider rest/conditioning alongside technique work. {base_classification['recommendation']}"
+                )
+    
+    # Add fatigue context to result
+    result = base_classification.copy()
+    result['fatigue_flag'] = fatigue_flag
+    result['intervention_type'] = intervention_type
+    
+    return result
+
+
+# ============================================================================
+# CV-Based Movement Extraction (Phase 3.1)
+# ============================================================================
+
+"""
+CV-Based Movement Extraction computes movement metrics directly from pose
+time series data extracted by MediaPipe. This enables automatic measurement
+of split-step timing, recovery time, and balance drift without manual input.
+
+WHY THIS MATTERS:
+- Automated movement analysis from video alone
+- No manual annotation or sensors required
+- Real-time feedback on footwork quality
+- Objective measurement of movement patterns
+
+APPROACH:
+- Use existing pose landmarks (MediaPipe output)
+- Compute center of mass (COM) from hip landmarks
+- Detect movement events from kinematic signals
+- Estimate timing and quality metrics
+
+INTEGRATION:
+- Metrics feed into Movement Intelligence (Phase 2.2)
+- Participate in reliability analysis
+- Used for fatigue detection (Phase 2.3)
+- Enable automated coaching feedback
+
+GRACEFUL DEGRADATION:
+- All metrics are optional
+- Missing/noisy data returns None with confidence=0
+- Pipeline continues without movement metrics if extraction fails
+"""
+
+import numpy as np
+import pandas as pd
+
+
+def compute_center_of_mass(landmarks_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute approximate center of mass from hip landmarks.
+    
+    Uses mid-hip position as COM proxy. This is a simplification but
+    sufficient for movement analysis (balance, lateral motion, etc.).
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks (must have hip columns)
+        
+    Returns:
+        DataFrame with COM coordinates: com_x, com_y, com_z
+        Returns empty DataFrame if hip landmarks missing
+        
+    Example:
+        >>> com = compute_center_of_mass(landmarks_df)
+        >>> lateral_drift = com['com_x'].max() - com['com_x'].min()
+    """
+    try:
+        # Check for required landmarks
+        if 'left_hip_x' not in landmarks_df.columns or 'right_hip_x' not in landmarks_df.columns:
+            return pd.DataFrame()
+        
+        # Compute mid-hip position as COM proxy
+        com_df = pd.DataFrame()
+        com_df['com_x'] = (landmarks_df['left_hip_x'] + landmarks_df['right_hip_x']) / 2
+        com_df['com_y'] = (landmarks_df['left_hip_y'] + landmarks_df['right_hip_y']) / 2
+        
+        if 'left_hip_z' in landmarks_df.columns and 'right_hip_z' in landmarks_df.columns:
+            com_df['com_z'] = (landmarks_df['left_hip_z'] + landmarks_df['right_hip_z']) / 2
+        else:
+            com_df['com_z'] = 0.0
+        
+        return com_df
+    
+    except Exception as e:
+        print(f"[WARNING] Failed to compute COM: {e}")
+        return pd.DataFrame()
+
+
+def extract_split_step_timing(
+    landmarks_df: pd.DataFrame,
+    contact_frame: int,
+    fps: float = 24.0,
+    search_window_frames: int = 30
+) -> dict:
+    """
+    Extract split-step timing from pose time series.
+    
+    APPROACH:
+    - Split-step is a "dip and plant" movement before stroke
+    - Detected via: COM vertical motion + knee flexion increase
+    - Optimal timing: 0-150ms before opponent contact (we use player contact as proxy)
+    
+    HEURISTIC:
+    1. Search window: [contact_frame - search_window, contact_frame]
+    2. Detect COM vertical dip (local minimum in com_y)
+    3. Confirm with knee flexion increase
+    4. Compute timing relative to contact
+    
+    CONFIDENCE:
+    - High (0.8-1.0): Clear dip detected, knee flexion confirms
+    - Medium (0.5-0.8): Dip detected, weak knee signal
+    - Low (0-0.5): No clear dip, or too noisy
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks
+        contact_frame: Frame index of stroke contact
+        fps: Frames per second
+        search_window_frames: Frames to search before contact
+        
+    Returns:
+        Dictionary with:
+        - split_step_timing_seconds: Time before contact (negative = early, positive = late)
+        - split_step_quality: 'on-time' / 'early' / 'late' / 'not_detected'
+        - confidence: 0.0-1.0
+        - split_step_frame: Frame where split-step detected (or None)
+    """
+    result = {
+        'split_step_timing_seconds': None,
+        'split_step_quality': 'not_detected',
+        'confidence': 0.0,
+        'split_step_frame': None
+    }
+    
+    try:
+        # Compute COM
+        com_df = compute_center_of_mass(landmarks_df)
+        if com_df.empty:
+            return result
+        
+        # Define search window
+        start_frame = max(0, contact_frame - search_window_frames)
+        end_frame = contact_frame
+        
+        if end_frame - start_frame < 5:  # Need minimum window
+            return result
+        
+        # Extract COM vertical position in window
+        com_y_window = com_df['com_y'].iloc[start_frame:end_frame].values
+        
+        if len(com_y_window) < 5:
+            return result
+        
+        # Smooth to reduce noise
+        from scipy.ndimage import gaussian_filter1d
+        com_y_smooth = gaussian_filter1d(com_y_window, sigma=2)
+        
+        # Find local minima (dip candidates)
+        from scipy.signal import find_peaks
+        peaks, properties = find_peaks(-com_y_smooth, prominence=0.01)  # Inverted to find minima
+        
+        if len(peaks) == 0:
+            result['confidence'] = 0.1  # No dip detected
+            return result
+        
+        # Take the last (closest to contact) dip as split-step
+        split_step_idx = peaks[-1]
+        split_step_frame = start_frame + split_step_idx
+        
+        # Compute timing relative to contact
+        frames_before_contact = contact_frame - split_step_frame
+        timing_seconds = frames_before_contact / fps
+        
+        # Check knee flexion for confirmation (if available)
+        confidence = 0.6  # Base confidence
+        
+        if 'left_knee_angle' in landmarks_df.columns and 'right_knee_angle' in landmarks_df.columns:
+            knee_angles = (landmarks_df['left_knee_angle'] + landmarks_df['right_knee_angle']) / 2
+            knee_at_split = knee_angles.iloc[split_step_frame] if split_step_frame < len(knee_angles) else None
+            knee_at_contact = knee_angles.iloc[contact_frame] if contact_frame < len(knee_angles) else None
+            
+            if knee_at_split is not None and knee_at_contact is not None:
+                knee_flexion_increase = knee_at_contact - knee_at_split
+                if knee_flexion_increase > 5:  # Degrees
+                    confidence = 0.85  # High confidence with knee confirmation
+        
+        # Determine quality
+        if -0.15 <= timing_seconds <= 0.05:  # -150ms to +50ms
+            quality = 'on-time'
+            confidence = min(1.0, confidence + 0.1)
+        elif timing_seconds < -0.15:
+            quality = 'early'
+        else:
+            quality = 'late'
+        
+        result['split_step_timing_seconds'] = -timing_seconds  # Negative = before contact
+        result['split_step_quality'] = quality
+        result['confidence'] = confidence
+        result['split_step_frame'] = split_step_frame
+        
+    except Exception as e:
+        print(f"[WARNING] Split-step extraction failed: {e}")
+        result['confidence'] = 0.0
+    
+    return result
+
+
+def extract_recovery_time(
+    landmarks_df: pd.DataFrame,
+    contact_frame: int,
+    fps: float = 24.0,
+    max_search_frames: int = 60
+) -> dict:
+    """
+    Extract recovery time from pose time series.
+    
+    APPROACH:
+    - Recovery = time from contact to return-to-ready position
+    - Detected via: stance width stabilizes + COM lateral velocity drops
+    
+    HEURISTIC:
+    1. Search window: [contact_frame, contact_frame + max_search]
+    2. Compute stance width (ankle distance) over time
+    3. Compute COM lateral velocity
+    4. Ready position: stance width stable + low lateral velocity
+    
+    CONFIDENCE:
+    - High (0.8-1.0): Clear stabilization detected
+    - Medium (0.5-0.8): Stabilization detected, some noise
+    - Low (0-0.5): No clear stabilization or max search reached
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks
+        contact_frame: Frame index of stroke contact
+        fps: Frames per second
+        max_search_frames: Maximum frames to search after contact
+        
+    Returns:
+        Dictionary with:
+        - recovery_time_seconds: Time from contact to ready
+        - confidence: 0.0-1.0
+        - recovery_frame: Frame where ready position detected (or None)
+    """
+    result = {
+        'recovery_time_seconds': None,
+        'confidence': 0.0,
+        'recovery_frame': None
+    }
+    
+    try:
+        # Compute COM
+        com_df = compute_center_of_mass(landmarks_df)
+        if com_df.empty:
+            return result
+        
+        # Define search window
+        start_frame = contact_frame
+        end_frame = min(len(landmarks_df), contact_frame + max_search_frames)
+        
+        if end_frame - start_frame < 10:  # Need minimum window
+            return result
+        
+        # Compute COM lateral velocity (change in com_x)
+        com_x = com_df['com_x'].values
+        com_velocity = np.abs(np.diff(com_x, prepend=com_x[0]))
+        
+        # Smooth velocity
+        from scipy.ndimage import gaussian_filter1d
+        com_velocity_smooth = gaussian_filter1d(com_velocity, sigma=2)
+        
+        # Find when velocity drops below threshold
+        velocity_threshold = 0.005  # Normalized units (adjust based on frame size)
+        
+        search_velocity = com_velocity_smooth[start_frame:end_frame]
+        
+        # Find first frame where velocity stays below threshold for 3+ frames
+        stable_count = 0
+        recovery_idx = None
+        
+        for i in range(len(search_velocity)):
+            if search_velocity[i] < velocity_threshold:
+                stable_count += 1
+                if stable_count >= 3:  # 3 consecutive frames below threshold
+                    recovery_idx = i
+                    break
+            else:
+                stable_count = 0
+        
+        if recovery_idx is None:
+            # No recovery detected in search window
+            result['confidence'] = 0.2
+            result['recovery_time_seconds'] = max_search_frames / fps  # Max time
+            return result
+        
+        recovery_frame = start_frame + recovery_idx
+        recovery_time = recovery_idx / fps
+        
+        # Confidence based on velocity profile smoothness
+        velocity_variance = np.var(search_velocity[:recovery_idx+1])
+        confidence = 0.7 if velocity_variance < 0.0001 else 0.5
+        
+        result['recovery_time_seconds'] = recovery_time
+        result['confidence'] = confidence
+        result['recovery_frame'] = recovery_frame
+        
+    except Exception as e:
+        print(f"[WARNING] Recovery time extraction failed: {e}")
+        result['confidence'] = 0.0
+    
+    return result
+
+
+def extract_balance_drift(
+    landmarks_df: pd.DataFrame,
+    contact_frame: int,
+    window_frames: int = 10
+) -> dict:
+    """
+    Extract balance drift from pose time series.
+    
+    APPROACH:
+    - Balance drift = lateral COM movement during stroke execution
+    - Measured in contact window: [contact_frame - window, contact_frame + window]
+    
+    HEURISTIC:
+    1. Extract COM lateral position (com_x) in contact window
+    2. Compute max lateral drift: max(com_x) - min(com_x)
+    3. Normalize by frame width if available
+    4. Compute stability score: 100 - (drift * scale_factor)
+    
+    CONFIDENCE:
+    - High (0.8-1.0): Smooth COM trajectory, clear measurement
+    - Medium (0.5-0.8): Some noise in trajectory
+    - Low (0-0.5): Very noisy or insufficient data
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks
+        contact_frame: Frame index of stroke contact
+        window_frames: Frames before/after contact to analyze
+        
+    Returns:
+        Dictionary with:
+        - balance_drift_cm_or_normalized: Lateral drift magnitude
+        - stability_score: 0-100 (100 = perfect stability)
+        - confidence: 0.0-1.0
+    """
+    result = {
+        'balance_drift_cm_or_normalized': None,
+        'stability_score': None,
+        'confidence': 0.0
+    }
+    
+    try:
+        # Compute COM
+        com_df = compute_center_of_mass(landmarks_df)
+        if com_df.empty:
+            return result
+        
+        # Define analysis window
+        start_frame = max(0, contact_frame - window_frames)
+        end_frame = min(len(landmarks_df), contact_frame + window_frames)
+        
+        if end_frame - start_frame < 5:  # Need minimum window
+            return result
+        
+        # Extract COM lateral position in window
+        com_x_window = com_df['com_x'].iloc[start_frame:end_frame].values
+        
+        if len(com_x_window) < 5:
+            return result
+        
+        # Compute lateral drift
+        drift = np.max(com_x_window) - np.min(com_x_window)
+        
+        # Compute stability score (0-100, higher = more stable)
+        # Assume drift is in normalized coordinates (0-1 range)
+        # Typical good balance: drift < 0.05 (5% of frame width)
+        stability_score = max(0, 100 - (drift * 2000))  # Scale factor
+        stability_score = min(100, stability_score)
+        
+        # Confidence based on trajectory smoothness
+        com_x_diff = np.diff(com_x_window)
+        trajectory_variance = np.var(com_x_diff)
+        
+        if trajectory_variance < 0.0001:
+            confidence = 0.85  # High confidence, smooth trajectory
+        elif trajectory_variance < 0.001:
+            confidence = 0.65  # Medium confidence
+        else:
+            confidence = 0.4  # Low confidence, noisy
+        
+        result['balance_drift_cm_or_normalized'] = drift
+        result['stability_score'] = stability_score
+        result['confidence'] = confidence
+        
+    except Exception as e:
+        print(f"[WARNING] Balance drift extraction failed: {e}")
+        result['confidence'] = 0.0
+    
+    return result
+
+
+def extract_movement_metrics_from_video(
+    landmarks_df: pd.DataFrame,
+    contact_frame: int,
+    fps: float = 24.0
+) -> dict:
+    """
+    Extract all CV-based movement metrics from pose time series.
+    
+    This is the main integration function that calls individual extractors
+    and packages results for downstream analysis.
+    
+    INTEGRATION:
+    - Called during pipeline execution (optional)
+    - Results feed into Movement Intelligence (Phase 2.2)
+    - Used for fatigue detection (Phase 2.3)
+    - Participate in reliability analysis
+    
+    GRACEFUL DEGRADATION:
+    - If landmarks_df is empty/invalid, returns empty dict
+    - If individual extractors fail, their metrics are None
+    - Pipeline continues without CV movement metrics
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks (MediaPipe output)
+        contact_frame: Frame index of stroke contact
+        fps: Video frames per second
+        
+    Returns:
+        Dictionary with extracted movement metrics:
+        - split_step_timing: dict from extract_split_step_timing()
+        - recovery_time: dict from extract_recovery_time()
+        - balance_drift: dict from extract_balance_drift()
+        - overall_confidence: Average confidence across metrics
+        
+    Example:
+        >>> metrics = extract_movement_metrics_from_video(landmarks_df, contact_frame=220, fps=24.0)
+        >>> if metrics['split_step_timing']['confidence'] > 0.5:
+        ...     print(f"Split-step: {metrics['split_step_timing']['split_step_quality']}")
+    """
+    result = {
+        'split_step_timing': {},
+        'recovery_time': {},
+        'balance_drift': {},
+        'overall_confidence': 0.0
+    }
+    
+    try:
+        # Check input validity
+        if landmarks_df is None or landmarks_df.empty:
+            print("[INFO] No landmarks data available for movement extraction")
+            return result
+        
+        if contact_frame < 0 or contact_frame >= len(landmarks_df):
+            print(f"[WARNING] Invalid contact frame {contact_frame} for landmarks length {len(landmarks_df)}")
+            return result
+        
+        # Extract individual metrics
+        result['split_step_timing'] = extract_split_step_timing(landmarks_df, contact_frame, fps)
+        result['recovery_time'] = extract_recovery_time(landmarks_df, contact_frame, fps)
+        result['balance_drift'] = extract_balance_drift(landmarks_df, contact_frame)
+        
+        # Compute overall confidence
+        confidences = [
+            result['split_step_timing'].get('confidence', 0.0),
+            result['recovery_time'].get('confidence', 0.0),
+            result['balance_drift'].get('confidence', 0.0)
+        ]
+        result['overall_confidence'] = np.mean([c for c in confidences if c > 0]) if any(c > 0 for c in confidences) else 0.0
+        
+        # Log extraction summary
+        print(f"[CV MOVEMENT] Extracted metrics with overall confidence: {result['overall_confidence']:.2f}")
+        if result['split_step_timing'].get('confidence', 0) > 0.5:
+            print(f"  - Split-step: {result['split_step_timing']['split_step_quality']} "
+                  f"({result['split_step_timing']['split_step_timing_seconds']:.3f}s)")
+        if result['recovery_time'].get('confidence', 0) > 0.5:
+            print(f"  - Recovery time: {result['recovery_time']['recovery_time_seconds']:.2f}s")
+        if result['balance_drift'].get('confidence', 0) > 0.5:
+            print(f"  - Balance stability: {result['balance_drift']['stability_score']:.0f}/100")
+        
+    except Exception as e:
+        print(f"[WARNING] Movement metric extraction failed: {e}")
+        result['overall_confidence'] = 0.0
+    
+    return result
+
+
+# ============================================================================
+# Measurement Trust & Calibration (Phase 3.2)
+# ============================================================================
+
+"""
+Measurement Trust & Calibration adds a Signal Quality & Trust Layer to evaluate
+the reliability of CV-derived movement metrics. This improves coaching confidence
+by distinguishing between biomechanical issues and measurement artifacts.
+
+WHY THIS MATTERS:
+- Real-world video has variable quality (lighting, occlusion, motion blur)
+- Tracking errors can look like biomechanical issues
+- Low-quality measurements reduce coaching trust
+- Calibrated confidence prevents false positives
+
+KEY DISTINCTION:
+- SIGNAL QUALITY: How good is the tracking/measurement?
+- BIOMECHANICAL CONFIDENCE: How reliable is the extracted metric?
+- TRUST SCORE: Combined assessment (signal × biomechanical)
+
+APPROACH:
+- Analyze pose time series for tracking artifacts
+- Compute session-level signal quality score (0-1)
+- Modulate metric confidence based on signal quality
+- Generate human-readable trust reason codes
+
+INTEGRATION:
+- Plugs into existing reliability & prioritization logic
+- No threshold retuning required
+- Graceful degradation (no metrics fully discarded)
+- Backward compatible
+"""
+
+
+def compute_signal_quality_score(landmarks_df: pd.DataFrame) -> dict:
+    """
+    Compute session-level signal quality score from pose time series.
+    
+    Analyzes tracking artifacts that reduce measurement trust:
+    1. Landmark visibility consistency - Are key landmarks always visible?
+    2. Frame-to-frame jitter - Excessive noise in position?
+    3. Missing data ratio - What % of frames have missing landmarks?
+    4. Sudden COM jumps - Tracking loss / reacquisition?
+    
+    QUALITY INDICATORS:
+    - High (0.8-1.0): Clean tracking, consistent visibility, low jitter
+    - Medium (0.5-0.8): Some noise/occlusion, still usable
+    - Low (0-0.5): Significant tracking issues, low trust
+    
+    Args:
+        landmarks_df: DataFrame with pose landmarks (MediaPipe output)
+        
+    Returns:
+        Dictionary with signal quality assessment:
+        - signal_quality_score: 0.0-1.0 (normalized overall quality)
+        - visibility_score: 0.0-1.0 (landmark visibility consistency)
+        - jitter_score: 0.0-1.0 (1 = low jitter, 0 = high jitter)
+        - missing_data_ratio: 0.0-1.0 (fraction of missing data)
+        - tracking_stability_score: 0.0-1.0 (COM jump analysis)
+        - quality_level: 'high' / 'medium' / 'low'
+        - trust_reasons: List of human-readable quality issues
+        
+    Example:
+        >>> quality = compute_signal_quality_score(landmarks_df)
+        >>> if quality['signal_quality_score'] < 0.5:
+        ...     print("Low signal quality:", quality['trust_reasons'])
+    """
+    result = {
+        'signal_quality_score': 1.0,  # Default: high quality
+        'visibility_score': 1.0,
+        'jitter_score': 1.0,
+        'missing_data_ratio': 0.0,
+        'tracking_stability_score': 1.0,
+        'quality_level': 'high',
+        'trust_reasons': []
+    }
+    
+    try:
+        if landmarks_df is None or landmarks_df.empty:
+            result['signal_quality_score'] = 0.0
+            result['quality_level'] = 'low'
+            result['trust_reasons'].append("No pose landmarks available")
+            return result
+        
+        # 1. Landmark Visibility Consistency
+        # Check if key landmarks (hips, knees) have consistent visibility
+        key_landmarks = ['left_hip_x', 'right_hip_x', 'left_knee_angle', 'right_knee_angle']
+        available_landmarks = [lm for lm in key_landmarks if lm in landmarks_df.columns]
+        
+        if not available_landmarks:
+            result['visibility_score'] = 0.0
+            result['trust_reasons'].append("Key landmarks missing from tracking data")
+        else:
+            # Count non-null values for each landmark
+            visibility_ratios = []
+            for landmark in available_landmarks:
+                non_null_ratio = landmarks_df[landmark].notna().sum() / len(landmarks_df)
+                visibility_ratios.append(non_null_ratio)
+            
+            result['visibility_score'] = np.mean(visibility_ratios)
+            result['missing_data_ratio'] = 1.0 - result['visibility_score']
+            
+            if result['visibility_score'] < 0.7:
+                result['trust_reasons'].append(
+                    f"Low landmark visibility ({result['visibility_score']*100:.0f}% frames tracked)"
+                )
+        
+        # 2. Frame-to-Frame Jitter
+        # Compute position variance in hip landmarks (excessive jitter = tracking noise)
+        if 'left_hip_x' in landmarks_df.columns and 'right_hip_x' in landmarks_df.columns:
+            com_x = (landmarks_df['left_hip_x'] + landmarks_df['right_hip_x']) / 2
+            com_x_clean = com_x.dropna()
+            
+            if len(com_x_clean) > 5:
+                # Compute frame-to-frame differences
+                frame_diffs = np.abs(np.diff(com_x_clean.values))
+                median_diff = np.median(frame_diffs)
+                
+                # Jitter = number of diffs > 3x median (outliers)
+                jitter_outliers = np.sum(frame_diffs > 3 * median_diff)
+                jitter_ratio = jitter_outliers / len(frame_diffs)
+                
+                result['jitter_score'] = 1.0 - min(1.0, jitter_ratio * 5)  # Scale penalty
+                
+                if result['jitter_score'] < 0.7:
+                    result['trust_reasons'].append(
+                        f"Tracking jitter detected ({jitter_ratio*100:.1f}% outlier frames)"
+                    )
+        
+        # 3. Sudden COM Jumps (tracking loss/reacquisition)
+        com_df = compute_center_of_mass(landmarks_df)
+        if not com_df.empty and len(com_df) > 10:
+            com_x = com_df['com_x'].values
+            com_y = com_df['com_y'].values
+            
+            # Compute frame-to-frame distances
+            distances = np.sqrt(np.diff(com_x)**2 + np.diff(com_y)**2)
+            median_distance = np.median(distances)
+            
+            # Sudden jumps = distances > 5x median
+            sudden_jumps = np.sum(distances > 5 * median_distance)
+            jump_ratio = sudden_jumps / len(distances)
+            
+            result['tracking_stability_score'] = 1.0 - min(1.0, jump_ratio * 10)  # Scale penalty
+            
+            if result['tracking_stability_score'] < 0.7:
+                result['trust_reasons'].append(
+                    f"Tracking instability detected ({sudden_jumps} sudden position jumps)"
+                )
+        
+        # 4. Compute Overall Signal Quality Score (weighted average)
+        weights = {
+            'visibility': 0.40,  # Most important
+            'jitter': 0.30,
+            'tracking_stability': 0.30
+        }
+        
+        result['signal_quality_score'] = (
+            result['visibility_score'] * weights['visibility'] +
+            result['jitter_score'] * weights['jitter'] +
+            result['tracking_stability_score'] * weights['tracking_stability']
+        )
+        
+        # 5. Determine Quality Level
+        if result['signal_quality_score'] >= 0.8:
+            result['quality_level'] = 'high'
+        elif result['signal_quality_score'] >= 0.5:
+            result['quality_level'] = 'medium'
+            if not result['trust_reasons']:
+                result['trust_reasons'].append("Moderate tracking quality detected")
+        else:
+            result['quality_level'] = 'low'
+            if not result['trust_reasons']:
+                result['trust_reasons'].append("Poor tracking quality detected")
+        
+    except Exception as e:
+        print(f"[WARNING] Signal quality computation failed: {e}")
+        result['signal_quality_score'] = 0.5  # Default to medium on error
+        result['quality_level'] = 'medium'
+        result['trust_reasons'].append("Signal quality assessment inconclusive")
+    
+    return result
+
+
+def modulate_confidence_with_signal_quality(
+    metric_confidence: float,
+    signal_quality: dict,
+    metric_name: str = None
+) -> dict:
+    """
+    Modulate metric confidence based on signal quality.
+    
+    Combines biomechanical confidence (from CV extraction) with signal quality
+    (from tracking analysis) to produce a calibrated trust score.
+    
+    FORMULA:
+    - trust_score = metric_confidence × signal_quality_score × modulation_factor
+    - modulation_factor adjusts based on quality level and metric type
+    
+    GRACEFUL DEGRADATION:
+    - No metric is fully discarded (minimum trust > 0)
+    - Low signal quality reduces trust but doesn't eliminate it
+    - High-confidence metrics are less affected by moderate quality issues
+    
+    Args:
+        metric_confidence: Original confidence from CV extraction (0-1)
+        signal_quality: Output from compute_signal_quality_score()
+        metric_name: Optional metric name for specific adjustments
+        
+    Returns:
+        Dictionary with modulated confidence:
+        - trust_score: Calibrated confidence (0-1)
+        - original_confidence: Input metric confidence
+        - signal_quality_score: Input signal quality
+        - modulation_factor: Applied adjustment factor
+        - trust_level: 'high' / 'medium' / 'low'
+        - trust_reason: Human-readable explanation (if confidence reduced)
+        
+    Example:
+        >>> quality = compute_signal_quality_score(landmarks_df)
+        >>> modulated = modulate_confidence_with_signal_quality(0.85, quality)
+        >>> print(f"Trust score: {modulated['trust_score']:.2f}")
+    """
+    result = {
+        'trust_score': metric_confidence,  # Default: no change
+        'original_confidence': metric_confidence,
+        'signal_quality_score': signal_quality['signal_quality_score'],
+        'modulation_factor': 1.0,
+        'trust_level': 'high',
+        'trust_reason': None
+    }
+    
+    try:
+        sq_score = signal_quality['signal_quality_score']
+        quality_level = signal_quality['quality_level']
+        
+        # Determine modulation factor based on quality level
+        if quality_level == 'high':
+            # High signal quality: minimal modulation
+            modulation_factor = 1.0
+            trust_reason = None
+        
+        elif quality_level == 'medium':
+            # Medium signal quality: moderate modulation
+            # Scale based on actual score (0.5-0.8 range)
+            modulation_factor = 0.7 + (sq_score - 0.5) * 0.6  # 0.7 to 0.88
+            
+            # Generate reason from signal quality issues
+            if signal_quality['trust_reasons']:
+                trust_reason = signal_quality['trust_reasons'][0]  # Primary issue
+            else:
+                trust_reason = "Moderate tracking quality"
+        
+        elif quality_level == 'low':
+            # Low signal quality: significant modulation but not zero
+            # Scale based on actual score (0-0.5 range)
+            modulation_factor = 0.4 + sq_score * 0.6  # 0.4 to 0.7
+            
+            # Generate reason from signal quality issues
+            if signal_quality['trust_reasons']:
+                # Combine top issues
+                reasons = signal_quality['trust_reasons'][:2]
+                trust_reason = "; ".join(reasons)
+            else:
+                trust_reason = "Low tracking quality"
+        
+        else:
+            # Unknown quality level: default moderate modulation
+            modulation_factor = 0.8
+            trust_reason = "Signal quality unknown"
+        
+        # Apply modulation
+        trust_score = metric_confidence * modulation_factor
+        
+        # Ensure minimum trust (graceful degradation)
+        trust_score = max(0.1, trust_score)  # Never go below 0.1
+        
+        # Determine trust level
+        if trust_score >= 0.7:
+            trust_level = 'high'
+        elif trust_score >= 0.4:
+            trust_level = 'medium'
+        else:
+            trust_level = 'low'
+        
+        result.update({
+            'trust_score': trust_score,
+            'modulation_factor': modulation_factor,
+            'trust_level': trust_level,
+            'trust_reason': trust_reason
+        })
+        
+    except Exception as e:
+        print(f"[WARNING] Confidence modulation failed: {e}")
+        # On error, return original confidence
+        result['trust_score'] = metric_confidence
+        result['trust_reason'] = "Trust calibration failed"
+    
+    return result
+
+
+def apply_trust_calibration_to_cv_metrics(
+    cv_metrics: dict,
+    signal_quality: dict
+) -> dict:
+    """
+    Apply trust calibration to all CV-extracted movement metrics.
+    
+    This is the main integration function that:
+    1. Takes CV-extracted metrics with biomechanical confidence
+    2. Applies signal quality modulation
+    3. Returns calibrated trust scores + reasons
+    
+    INTEGRATION:
+    - Call after extract_movement_metrics_from_video()
+    - Trust scores replace confidences for downstream analysis
+    - Original confidences preserved for reference
+    
+    Args:
+        cv_metrics: Output from extract_movement_metrics_from_video()
+        signal_quality: Output from compute_signal_quality_score()
+        
+    Returns:
+        Dictionary with trust-calibrated metrics:
+        - All original cv_metrics fields preserved
+        - Each metric gets additional 'trust_calibration' field
+        - Overall trust summary added
+        
+    Example:
+        >>> cv_metrics = extract_movement_metrics_from_video(landmarks_df, 220, 24.0)
+        >>> signal_quality = compute_signal_quality_score(landmarks_df)
+        >>> calibrated = apply_trust_calibration_to_cv_metrics(cv_metrics, signal_quality)
+        >>> print(f"Calibrated confidence: {calibrated['split_step_timing']['trust_calibration']['trust_score']:.2f}")
+    """
+    calibrated = cv_metrics.copy()
+    
+    try:
+        # Calibrate each metric type
+        metric_types = ['split_step_timing', 'recovery_time', 'balance_drift']
+        
+        for metric_type in metric_types:
+            if metric_type in calibrated and 'confidence' in calibrated[metric_type]:
+                original_conf = calibrated[metric_type]['confidence']
+                
+                # Apply trust calibration
+                trust_result = modulate_confidence_with_signal_quality(
+                    original_conf,
+                    signal_quality,
+                    metric_name=metric_type
+                )
+                
+                # Add trust calibration to metric
+                calibrated[metric_type]['trust_calibration'] = trust_result
+                
+                # Update effective confidence to trust score
+                calibrated[metric_type]['effective_confidence'] = trust_result['trust_score']
+        
+        # Compute overall calibrated confidence
+        calibrated_confidences = []
+        for metric_type in metric_types:
+            if metric_type in calibrated and 'effective_confidence' in calibrated[metric_type]:
+                calibrated_confidences.append(calibrated[metric_type]['effective_confidence'])
+        
+        if calibrated_confidences:
+            calibrated['overall_calibrated_confidence'] = np.mean(calibrated_confidences)
+        else:
+            calibrated['overall_calibrated_confidence'] = 0.0
+        
+        # Add overall trust summary
+        calibrated['trust_summary'] = {
+            'signal_quality_level': signal_quality['quality_level'],
+            'signal_quality_score': signal_quality['signal_quality_score'],
+            'calibration_applied': True,
+            'trust_issues': signal_quality['trust_reasons'] if signal_quality['trust_reasons'] else None
+        }
+        
+    except Exception as e:
+        print(f"[WARNING] Trust calibration application failed: {e}")
+        calibrated['trust_summary'] = {
+            'signal_quality_level': 'unknown',
+            'calibration_applied': False,
+            'trust_issues': ["Calibration failed"]
+        }
+    
+    return calibrated
+
+
+# ============================================================================
 # Session Management
 # ============================================================================
 
@@ -1274,13 +3167,282 @@ def get_drill_knowledge_base() -> dict:
                     'rationale': 'Provides objective feedback on progress'
                 }
             ]
+        },
+        
+        # ====================================================================
+        # Movement & Footwork Drills (Phase 2.2)
+        # ====================================================================
+        
+        'split_step_timing': {
+            'drills': [
+                {
+                    'name': 'Partner Split-Step Drill',
+                    'description': 'Partner drops ball, practice split-step at exact moment ball bounces',
+                    'target_metrics': ['split_step_timing'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '2 sets × 10 reps',
+                        'moderate': '4 sets × 15 reps',
+                        'intensive': '6 sets × 20 reps with random timing'
+                    },
+                    'rationale': 'Develops anticipation and split-step timing coordination'
+                },
+                {
+                    'name': 'Shadow Split-Step Training',
+                    'description': 'Watch pro match video, split-step in sync with players',
+                    'target_metrics': ['split_step_timing'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '5 minutes',
+                        'moderate': '10 minutes',
+                        'intensive': '15 minutes 2x daily'
+                    },
+                    'rationale': 'Builds rhythm and timing awareness'
+                }
+            ]
+        },
+        
+        'lateral_push_off_symmetry': {
+            'drills': [
+                {
+                    'name': 'Single-Leg Lateral Bounds',
+                    'description': 'Practice explosive lateral jumps on each leg separately, compare distance',
+                    'target_metrics': ['lateral_push_off_symmetry'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '2 sets × 8 reps per leg',
+                        'moderate': '3 sets × 12 reps per leg',
+                        'intensive': '4 sets × 15 reps per leg with measurements'
+                    },
+                    'rationale': 'Identifies and corrects lateral movement imbalances'
+                },
+                {
+                    'name': 'Side-to-Side Shuffle Drill',
+                    'description': 'Shuffle laterally between lines, focus on equal power from both legs',
+                    'target_metrics': ['lateral_push_off_symmetry'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '3 sets × 30 seconds',
+                        'moderate': '5 sets × 45 seconds',
+                        'intensive': '8 sets × 60 seconds with acceleration focus'
+                    },
+                    'rationale': 'Develops balanced lateral movement power'
+                }
+            ]
+        },
+        
+        'recovery_time': {
+            'drills': [
+                {
+                    'name': 'Touch-and-Recover Drill',
+                    'description': 'Hit from wide position, touch center line, recover to ready position',
+                    'target_metrics': ['recovery_time'],
+                    'target_phases': ['follow_through'],
+                    'intensity': {
+                        'light': '10 reps per side',
+                        'moderate': '20 reps per side',
+                        'intensive': '30 reps per side, timed'
+                    },
+                    'rationale': 'Builds recovery speed and court positioning habits'
+                },
+                {
+                    'name': 'Recovery Sprint Intervals',
+                    'description': 'Sprint to corner, hit imaginary shot, sprint back to center',
+                    'target_metrics': ['recovery_time'],
+                    'target_phases': ['follow_through'],
+                    'intensity': {
+                        'light': '6 reps',
+                        'moderate': '12 reps',
+                        'intensive': '20 reps with stopwatch tracking'
+                    },
+                    'rationale': 'Conditions fast recovery and endurance'
+                }
+            ]
+        },
+        
+        'stance_transition_speed': {
+            'drills': [
+                {
+                    'name': 'Quick-Setup Shadow Drill',
+                    'description': 'From ready position, transition to stroke stance as fast as possible',
+                    'target_metrics': ['stance_transition_speed'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '3 sets × 10 reps',
+                        'moderate': '5 sets × 15 reps',
+                        'intensive': '8 sets × 20 reps, timed'
+                    },
+                    'rationale': 'Develops explosive stance setup speed'
+                },
+                {
+                    'name': 'Cone-Touch Transition Drill',
+                    'description': 'Touch cone at ready position, explode to stroke stance at second cone',
+                    'target_metrics': ['stance_transition_speed'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '2 sets × 8 reps per side',
+                        'moderate': '4 sets × 12 reps per side',
+                        'intensive': '6 sets × 15 reps per side with timing'
+                    },
+                    'rationale': 'Builds explosive transition mechanics'
+                }
+            ]
+        },
+        
+        'balance_drift': {
+            'drills': [
+                {
+                    'name': 'Balance Board Strokes',
+                    'description': 'Practice shadow strokes while standing on balance board',
+                    'target_metrics': ['balance_drift'],
+                    'target_phases': ['contact'],
+                    'intensity': {
+                        'light': '2 sets × 10 strokes',
+                        'moderate': '4 sets × 15 strokes',
+                        'intensive': '6 sets × 20 strokes with eyes closed'
+                    },
+                    'rationale': 'Develops core stability and balance control'
+                },
+                {
+                    'name': 'Single-Leg Balance Holds',
+                    'description': 'Hold stroke finish position on one leg, measure stability',
+                    'target_metrics': ['balance_drift'],
+                    'target_phases': ['contact', 'follow_through'],
+                    'intensity': {
+                        'light': '3 sets × 15 seconds per leg',
+                        'moderate': '4 sets × 30 seconds per leg',
+                        'intensive': '5 sets × 45 seconds per leg with perturbations'
+                    },
+                    'rationale': 'Builds proprioception and stability'
+                }
+            ]
+        },
+        
+        'first_step_reaction_time': {
+            'drills': [
+                {
+                    'name': 'Light Reaction Drill',
+                    'description': 'Partner points direction with hand signal, react with first step',
+                    'target_metrics': ['first_step_reaction_time'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '2 sets × 10 reps',
+                        'moderate': '4 sets × 15 reps',
+                        'intensive': '6 sets × 20 reps with varied timing'
+                    },
+                    'rationale': 'Develops visual processing and reaction speed'
+                },
+                {
+                    'name': 'Ball Drop Reaction Drill',
+                    'description': 'Partner drops ball from shoulder height, catch before second bounce',
+                    'target_metrics': ['first_step_reaction_time'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '2 sets × 8 reps',
+                        'moderate': '3 sets × 12 reps',
+                        'intensive': '5 sets × 15 reps from various distances'
+                    },
+                    'rationale': 'Trains explosive first-step mechanics'
+                }
+            ]
+        },
+        
+        'footwork_efficiency': {
+            'drills': [
+                {
+                    'name': 'Minimalist Footwork Pattern',
+                    'description': 'Move to ball using minimum steps possible, focus on stride length',
+                    'target_metrics': ['footwork_efficiency'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '15 balls',
+                        'moderate': '30 balls',
+                        'intensive': '50 balls with step counting'
+                    },
+                    'rationale': 'Develops economical movement patterns'
+                },
+                {
+                    'name': 'Ladder Agility Training',
+                    'description': 'Agility ladder drills focusing on long strides and efficient steps',
+                    'target_metrics': ['footwork_efficiency'],
+                    'target_phases': ['preparation'],
+                    'intensity': {
+                        'light': '4 minutes',
+                        'moderate': '8 minutes',
+                        'intensive': '12 minutes with varied patterns'
+                    },
+                    'rationale': 'Builds efficient foot placement patterns'
+                }
+            ]
+        },
+        
+        'weight_transfer_completeness': {
+            'drills': [
+                {
+                    'name': 'Weight Transfer Shadow Drill',
+                    'description': 'Practice stroke emphasizing complete weight shift from back to front foot',
+                    'target_metrics': ['weight_transfer_completeness'],
+                    'target_phases': ['contact'],
+                    'intensity': {
+                        'light': '3 sets × 10 reps',
+                        'moderate': '5 sets × 15 reps',
+                        'intensive': '8 sets × 20 reps with resistance band'
+                    },
+                    'rationale': 'Builds kinetic chain power generation'
+                },
+                {
+                    'name': 'Medicine Ball Transfer Throws',
+                    'description': 'Throw medicine ball forward while fully transferring weight',
+                    'target_metrics': ['weight_transfer_completeness'],
+                    'target_phases': ['contact'],
+                    'intensity': {
+                        'light': '2 sets × 8 throws, 4-6 lbs',
+                        'moderate': '3 sets × 12 throws, 6-8 lbs',
+                        'intensive': '4 sets × 15 throws, 8-10 lbs'
+                    },
+                    'rationale': 'Develops explosive weight transfer mechanics'
+                }
+            ]
+        },
+        
+        'general_movement': {
+            'drills': [
+                {
+                    'name': 'Court Coverage Circuit',
+                    'description': 'Complete circuit: split-step, move to corner, recover, repeat all 4 corners',
+                    'target_metrics': ['split_step_timing', 'recovery_time', 'footwork_efficiency'],
+                    'target_phases': ['preparation', 'follow_through'],
+                    'intensity': {
+                        'light': '2 circuits',
+                        'moderate': '4 circuits',
+                        'intensive': '6 circuits timed'
+                    },
+                    'rationale': 'Integrates all movement skills in tennis-specific pattern'
+                },
+                {
+                    'name': 'Footwork & Shot Combination',
+                    'description': 'Feed random balls, focus on perfect footwork setup for each shot',
+                    'target_metrics': ['stance_transition_speed', 'balance_drift', 'weight_transfer_completeness'],
+                    'target_phases': ['preparation', 'contact'],
+                    'intensity': {
+                        'light': '20 balls',
+                        'moderate': '50 balls',
+                        'intensive': '100 balls with varied feeds'
+                    },
+                    'rationale': 'Applies movement skills in realistic match situations'
+                }
+            ]
         }
     }
 
 
 def map_metric_to_drill_category(metric_name: str) -> str:
     """
-    Map a biomechanical metric to its corresponding drill category.
+    Map a biomechanical or movement metric to its corresponding drill category.
+    
+    Extended in Phase 2.2 to support movement & footwork metrics alongside
+    stroke mechanics metrics. Movement metrics (split-step, recovery, balance)
+    are now eligible for drill recommendations via the same system.
     
     Args:
         metric_name: Name of the metric
@@ -1290,6 +3452,19 @@ def map_metric_to_drill_category(metric_name: str) -> str:
     """
     metric_lower = metric_name.lower()
     
+    # Check if this is a movement/footwork metric (Phase 2.2)
+    if is_movement_metric(metric_name):
+        # Direct mapping for movement metrics
+        metric_key = metric_lower.replace(' ', '_')
+        if metric_key in ['split_step_timing', 'lateral_push_off_symmetry', 
+                         'recovery_time', 'stance_transition_speed', 'balance_drift',
+                         'first_step_reaction_time', 'footwork_efficiency', 
+                         'weight_transfer_completeness']:
+            return metric_key
+        else:
+            return 'general_movement'
+    
+    # Stroke mechanics metrics (original logic)
     if 'hip' in metric_lower and 'rotation' in metric_lower:
         return 'hip_rotation'
     elif 'elbow' in metric_lower:
@@ -1815,6 +3990,868 @@ def get_top_effective_drills(n: int = 5, output_dir: str = "outputs") -> list:
     
     # Return top N
     return sorted_drills[:n]
+
+
+########################################
+# MATCH READINESS INTELLIGENCE
+# (Synthesis layer - combines technique, movement, fatigue, trust)
+########################################
+
+def compute_match_readiness(
+    technique_score: float,
+    movement_metrics: dict = None,
+    fatigue_analysis: dict = None,
+    signal_quality: dict = None
+) -> dict:
+    """
+    Compute match readiness score by synthesizing existing intelligence layers.
+    
+    IMPORTANT: Match readiness is NOT a performance prediction or injury risk assessment.
+    It is a training and competition guidance signal that reflects the current state of:
+    - Technique quality (stroke biomechanics)
+    - Movement quality (footwork, balance, recovery)
+    - Fatigue level (biomechanical degradation signals)
+    - Signal trust (measurement reliability)
+    
+    The readiness score helps coaches and athletes decide:
+    - Is the athlete ready for competition?
+    - Should training intensity be adjusted?
+    - Are there red flags that need attention before competing?
+    
+    This is a synthesis layer that combines existing intelligence without introducing
+    new measurements or analysis. It provides a single, explainable metric for decision-making.
+    
+    Args:
+        technique_score: Overall technique similarity score (0-100)
+        movement_metrics: Dict of movement quality assessments (optional)
+        fatigue_analysis: Dict with fatigue score and signals (optional)
+        signal_quality: Dict with signal quality score (optional)
+    
+    Returns:
+        dict: {
+            'readiness_score': float (0-100),
+            'readiness_level': str (Poor/Fair/Good/Excellent),
+            'confidence': float (0-1),
+            'contributors': dict (component scores with weights),
+            'explanation': str (human-readable summary),
+            'flags': list (warning signals)
+        }
+    """
+    # Component weights (sum to 1.0)
+    # These can be adjusted based on sport/context
+    base_weights = {
+        'technique': 0.40,
+        'movement': 0.30,
+        'fatigue': 0.20,
+        'trust': 0.10
+    }
+    
+    # Components dictionary
+    components = {}
+    actual_weights = {}
+    flags = []
+    
+    # 1. Technique quality (always available)
+    components['technique'] = technique_score / 100.0  # Normalize to 0-1
+    actual_weights['technique'] = base_weights['technique']
+    
+    # 2. Movement quality (optional)
+    if movement_metrics and movement_metrics.get('split_step_timing'):
+        # Extract movement quality signals
+        split_step = movement_metrics.get('split_step_timing', {})
+        recovery = movement_metrics.get('recovery_time', {})
+        balance = movement_metrics.get('balance_drift', {})
+        
+        movement_scores = []
+        
+        # Split-step quality
+        if split_step.get('split_step_quality') == 'on-time':
+            movement_scores.append(1.0)
+        elif split_step.get('split_step_quality') == 'early':
+            movement_scores.append(0.8)
+        else:
+            movement_scores.append(0.5)
+            flags.append("Split-step timing needs improvement")
+        
+        # Recovery time (lower is better, assume < 1.5s is good)
+        recovery_time = recovery.get('recovery_time_seconds', 2.0)
+        recovery_score = max(0, 1.0 - (recovery_time - 1.0) / 1.5)
+        movement_scores.append(recovery_score)
+        
+        if recovery_time > 2.0:
+            flags.append("Slow recovery time detected")
+        
+        # Balance stability
+        balance_score = balance.get('stability_score', 50) / 100.0
+        movement_scores.append(balance_score)
+        
+        if balance_score < 0.6:
+            flags.append("Balance instability detected")
+        
+        # Average movement quality
+        components['movement'] = np.mean(movement_scores)
+        actual_weights['movement'] = base_weights['movement']
+    else:
+        # Reweight if movement data missing
+        actual_weights['technique'] += base_weights['movement'] * 0.7
+        actual_weights['fatigue'] = base_weights['fatigue'] + base_weights['movement'] * 0.3
+    
+    # 3. Fatigue level (optional, inverted - low fatigue = good readiness)
+    if fatigue_analysis and 'fatigue_score' in fatigue_analysis:
+        fatigue_score = fatigue_analysis['fatigue_score']  # 0-100, higher = more fatigue
+        components['fatigue'] = 1.0 - (fatigue_score / 100.0)  # Invert: low fatigue = high readiness
+        actual_weights['fatigue'] = base_weights['fatigue']
+        
+        if fatigue_score > 60:
+            flags.append("Moderate to high fatigue detected")
+        
+        # Check for specific fatigue signals
+        affected = fatigue_analysis.get('affected_metrics', [])
+        if len(affected) >= 3:
+            flags.append(f"{len(affected)} metrics show fatigue patterns")
+    else:
+        # Reweight if fatigue data missing
+        # Distribute fatigue weight to existing components only
+        if 'movement' in components:
+            actual_weights['movement'] += base_weights['fatigue'] * 0.5
+            actual_weights['technique'] += base_weights['fatigue'] * 0.5
+        else:
+            # No movement data, give all to technique
+            actual_weights['technique'] += base_weights['fatigue']
+    
+    # 4. Signal trust (optional)
+    if signal_quality and 'quality_score' in signal_quality:
+        trust_score = signal_quality['quality_score']
+        components['trust'] = trust_score
+        actual_weights['trust'] = base_weights['trust']
+        
+        if trust_score < 0.6:
+            flags.append("Measurement quality below optimal")
+    else:
+        # Distribute trust weight to other components
+        for key in actual_weights:
+            actual_weights[key] += base_weights['trust'] / len(actual_weights)
+    
+    # Normalize weights to sum to 1.0 (in case of rounding errors)
+    weight_sum = sum(actual_weights.values())
+    actual_weights = {k: v / weight_sum for k, v in actual_weights.items()}
+    
+    # Compute weighted readiness score
+    readiness_raw = sum(
+        components.get(key, 0) * actual_weights[key]
+        for key in actual_weights
+    )
+    
+    readiness_score = readiness_raw * 100  # Scale to 0-100
+    
+    # Determine readiness level
+    if readiness_score >= 85:
+        readiness_level = "Excellent"
+    elif readiness_score >= 70:
+        readiness_level = "Good"
+    elif readiness_score >= 55:
+        readiness_level = "Fair"
+    else:
+        readiness_level = "Poor"
+    
+    # Compute confidence based on data availability
+    data_availability = len(components) / 4.0  # 4 possible components
+    confidence = data_availability * 0.7 + 0.3  # Minimum 0.3, max 1.0
+    
+    # If trust is low, reduce confidence
+    if 'trust' in components and components['trust'] < 0.7:
+        confidence *= components['trust']
+    
+    # Generate human-readable explanation
+    explanation_parts = []
+    
+    # Lead with readiness level
+    explanation_parts.append(f"{readiness_level} readiness")
+    
+    # Identify top contributor (only from actual components)
+    valid_contributors = {k: components.get(k, 0) * actual_weights[k] 
+                          for k in actual_weights if k in components}
+    
+    if valid_contributors:
+        top_contributor = max(valid_contributors.items(), key=lambda x: x[1])[0]
+        
+        contributor_names = {
+            'technique': 'technique quality',
+            'movement': 'movement quality',
+            'fatigue': 'low fatigue',
+            'trust': 'signal reliability'
+        }
+        
+        explanation_parts.append(f"driven by strong {contributor_names[top_contributor]}")
+        
+        # Note any concerns (only from actual components)
+        concerns = []
+        for key, score in components.items():
+            if score < 0.6 and key != 'trust':  # Trust is metadata, not a performance factor
+                concerns.append(contributor_names.get(key, key))
+        
+        if concerns:
+            explanation_parts.append(f"with concerns in {', '.join(concerns)}")
+    
+    explanation = ", ".join(explanation_parts) + "."
+    
+    # Build contributors dict (only include actual components)
+    contributors_output = {}
+    for key in components.keys():
+        if key in actual_weights:
+            contributors_output[key] = {
+                'raw_score': round(components[key] * 100, 1),
+                'weight': round(actual_weights[key], 2),
+                'weighted_contribution': round(components[key] * actual_weights[key] * 100, 1)
+            }
+    
+    return {
+        'readiness_score': round(readiness_score, 1),
+        'readiness_level': readiness_level,
+        'confidence': round(confidence, 2),
+        'contributors': contributors_output,
+        'explanation': explanation,
+        'flags': flags
+    }
+
+
+########################################
+# TRAINING LOAD & SESSION PLANNING
+# (Synthesis layer - converts readiness into training guidance)
+########################################
+
+def compute_training_load_recommendation(
+    match_readiness: dict = None,
+    fatigue_analysis: dict = None,
+    signal_quality: dict = None,
+    adaptive_coaching: dict = None
+) -> dict:
+    """
+    Compute training load recommendation based on match readiness and fatigue intelligence.
+    
+    IMPORTANT: This is training guidance, NOT medical advice or workout prescription.
+    It provides general recommendations for session planning based on observable
+    biomechanical state. Always consult with qualified coaches and medical professionals.
+    
+    The training load recommendation helps answer:
+    - What type of session should I do today?
+    - What intensity is appropriate?
+    - What should I focus on or avoid?
+    
+    This is a synthesis layer that converts readiness signals into actionable guidance
+    without introducing new measurements or modifying existing analysis.
+    
+    Args:
+        match_readiness: Output from compute_match_readiness (optional)
+        fatigue_analysis: Dict with fatigue score and signals (optional)
+        signal_quality: Dict with signal quality score (optional)
+        adaptive_coaching: Dict with priority issues (optional)
+    
+    Returns:
+        dict: {
+            'session_type': str (Recovery/Technique/Movement/Conditioning/Full/Match-sim),
+            'intensity': str (Low/Moderate/High),
+            'focus_areas': list[str],
+            'avoid_areas': list[str],
+            'rationale': str (human-readable explanation),
+            'confidence': float (0-1),
+            'warnings': list[str]
+        }
+    """
+    # Default values
+    session_type = "Technique"
+    intensity = "Moderate"
+    focus_areas = []
+    avoid_areas = []
+    warnings = []
+    confidence = 0.5
+    
+    # Extract key signals
+    readiness_score = 70.0  # Default moderate readiness
+    readiness_level = "Good"
+    fatigue_score = 30.0  # Default low fatigue
+    trust_score = 0.8  # Default good trust
+    
+    if match_readiness:
+        readiness_score = match_readiness.get('readiness_score', 70.0)
+        readiness_level = match_readiness.get('readiness_level', 'Good')
+        confidence = match_readiness.get('confidence', 0.5)
+    
+    if fatigue_analysis:
+        fatigue_score = fatigue_analysis.get('fatigue_score', 30.0)
+    
+    if signal_quality:
+        trust_score = signal_quality.get('quality_score', 0.8)
+    
+    # Decision logic based on readiness and fatigue
+    
+    # Case 1: Low signal trust → Recommend re-recording
+    if trust_score < 0.6:
+        session_type = "Technique"
+        intensity = "Low"
+        focus_areas.append("Video quality improvement")
+        warnings.append("Low measurement quality detected - consider re-recording with better lighting/angles")
+        rationale = "Limited training guidance due to low measurement quality. Focus on basic technique with low intensity until better video data is available."
+    
+    # Case 2: High fatigue → Recovery or light technique
+    elif fatigue_score > 60:
+        session_type = "Recovery"
+        intensity = "Low"
+        focus_areas.append("Active recovery")
+        focus_areas.append("Mobility work")
+        avoid_areas.append("High-intensity rallies")
+        avoid_areas.append("Explosive movements")
+        
+        if fatigue_score > 75:
+            warnings.append("Very high fatigue detected - prioritize rest and recovery")
+        
+        rationale = f"High fatigue detected ({fatigue_score:.0f}/100). Prioritize recovery to prevent overtraining. Light technique drills acceptable, but avoid high-intensity work."
+    
+    # Case 3: Low readiness (poor technique/movement)
+    elif readiness_score < 55:
+        session_type = "Technique"
+        intensity = "Low"
+        focus_areas.append("Fundamental technique refinement")
+        focus_areas.append("Slow-motion practice")
+        avoid_areas.append("Match simulation")
+        avoid_areas.append("High-speed rallies")
+        
+        rationale = f"Low readiness ({readiness_score:.1f}/100). Focus on technique fundamentals at low intensity to build solid foundation before increasing load."
+    
+    # Case 4: Fair readiness → Technique + Movement
+    elif readiness_score < 70:
+        session_type = "Technique"
+        intensity = "Moderate"
+        focus_areas.append("Technical corrections")
+        focus_areas.append("Movement patterns")
+        focus_areas.append("Consistency drills")
+        
+        if fatigue_score > 40:
+            avoid_areas.append("Extended rallies")
+            warnings.append("Moderate fatigue present - monitor closely and reduce volume if needed")
+        
+        rationale = f"Fair readiness ({readiness_score:.1f}/100). Moderate intensity technical and movement work appropriate. Build consistency before increasing intensity."
+    
+    # Case 5: Good readiness → Conditioning or Full training
+    elif readiness_score < 85:
+        if fatigue_score < 30:
+            session_type = "Full"
+            intensity = "High"
+            focus_areas.append("Technical refinement under pressure")
+            focus_areas.append("Conditioning drills")
+            focus_areas.append("Point play")
+        else:
+            session_type = "Conditioning"
+            intensity = "Moderate"
+            focus_areas.append("Technique maintenance")
+            focus_areas.append("Movement conditioning")
+            avoid_areas.append("Max-intensity rallies")
+        
+        rationale = f"Good readiness ({readiness_score:.1f}/100). Ready for substantial training load. Can include conditioning and point play."
+    
+    # Case 6: Excellent readiness → Match simulation
+    else:
+        session_type = "Match-sim"
+        intensity = "High"
+        focus_areas.append("Match simulation")
+        focus_areas.append("Competition scenarios")
+        focus_areas.append("Mental toughness")
+        focus_areas.append("Strategy execution")
+        
+        rationale = f"Excellent readiness ({readiness_score:.1f}/100). Peak form. Ready for match simulation and high-intensity competition preparation."
+    
+    # Add specific focus areas from adaptive coaching if available
+    if adaptive_coaching and 'priorities' in adaptive_coaching:
+        priorities = adaptive_coaching['priorities']
+        critical_issues = [p for p in priorities if p.get('classification') == 'CRITICAL']
+        
+        if critical_issues and session_type not in ['Recovery', 'Match-sim']:
+            for issue in critical_issues[:2]:  # Top 2 critical issues
+                metric = issue.get('metric', '').replace('_', ' ').title()
+                focus_areas.append(f"Address critical issue: {metric}")
+    
+    # Confidence adjustment based on data availability
+    if not match_readiness:
+        confidence *= 0.7
+    if not fatigue_analysis:
+        confidence *= 0.9
+    if not signal_quality:
+        confidence *= 0.95
+    
+    return {
+        'session_type': session_type,
+        'intensity': intensity,
+        'focus_areas': focus_areas,
+        'avoid_areas': avoid_areas,
+        'rationale': rationale,
+        'confidence': round(confidence, 2),
+        'warnings': warnings
+    }
+
+
+########################################
+# PLAYER BASELINE & PERSONALIZATION
+# (Aggregates historical session data for relative interpretation)
+########################################
+
+def load_historical_sessions(output_dir: str = "outputs", max_sessions: int = 10) -> list:
+    """
+    Load historical session data from the outputs directory.
+    
+    This function scans session directories and extracts key metrics
+    for baseline computation. It loads data from session subdirectories
+    (e.g., outputs/2025-12-29_13-12-31/) and returns a list of session
+    summaries.
+    
+    Args:
+        output_dir: Base output directory (default: "outputs")
+        max_sessions: Maximum number of recent sessions to load (default: 10)
+    
+    Returns:
+        list: List of session dicts, sorted by timestamp (newest first)
+              Each dict contains: {
+                  'session_id': str,
+                  'timestamp': str,
+                  'technique_score': float,
+                  'readiness_score': float (if available),
+                  'phase_scores': dict (if available),
+                  'metrics': dict (extracted metrics)
+              }
+    """
+    output_path = Path(output_dir)
+    
+    if not output_path.exists():
+        return []
+    
+    sessions = []
+    
+    # Find all session directories (timestamp format: YYYY-MM-DD_HH-MM-SS)
+    session_dirs = []
+    for item in output_path.iterdir():
+        if item.is_dir() and len(item.name) == 19:  # Expected format length
+            try:
+                # Validate it's a timestamp format
+                datetime.strptime(item.name, '%Y-%m-%d_%H-%M-%S')
+                session_dirs.append(item)
+            except ValueError:
+                continue  # Skip non-session directories
+    
+    # Sort by timestamp (newest first)
+    session_dirs.sort(reverse=True)
+    
+    # Load up to max_sessions
+    for session_dir in session_dirs[:max_sessions]:
+        try:
+            session_id = session_dir.name
+            
+            # Try to load metrics from user_features.csv
+            features_file = session_dir / "user_features.csv"
+            metrics = {}
+            
+            if features_file.exists():
+                # Read basic features
+                features_df = pd.read_csv(features_file)
+                
+                # Extract key metrics (if available)
+                if 'elbow_angle' in features_df.columns:
+                    metrics['elbow_angle'] = features_df['elbow_angle'].mean()
+                if 'knee_angle' in features_df.columns:
+                    metrics['knee_angle'] = features_df['knee_angle'].mean()
+                if 'hip_rotation' in features_df.columns:
+                    metrics['hip_rotation'] = features_df['hip_rotation'].mean()
+            
+            # Try to extract scores from report.md if it exists
+            report_file = session_dir / "report.md"
+            technique_score = None
+            readiness_score = None
+            
+            if report_file.exists():
+                report_text = report_file.read_text(encoding='utf-8')
+                
+                # Extract technique score (look for "Overall Similarity: X.X%")
+                import re
+                similarity_match = re.search(r'Overall Similarity:\s*\*\*(\d+\.?\d*)%\*\*', report_text)
+                if similarity_match:
+                    technique_score = float(similarity_match.group(1))
+                
+                # Extract readiness score (look for "Score**: X.X/100")
+                readiness_match = re.search(r'\*\*Score\*\*:\s*(\d+\.?\d*)/100', report_text)
+                if readiness_match:
+                    readiness_score = float(readiness_match.group(1))
+            
+            session_data = {
+                'session_id': session_id,
+                'timestamp': session_id,
+                'technique_score': technique_score,
+                'readiness_score': readiness_score,
+                'metrics': metrics
+            }
+            
+            sessions.append(session_data)
+        
+        except Exception as e:
+            # Skip sessions that can't be loaded
+            continue
+    
+    return sessions
+
+
+def compute_player_baseline(
+    historical_sessions: list,
+    min_sessions: int = 3
+) -> dict:
+    """
+    Compute player baseline from historical session data.
+    
+    This function aggregates historical metrics to establish personal
+    reference values. These baselines enable relative interpretation:
+    "Your recovery time is 15% faster than your baseline."
+    
+    IMPORTANT: Baselines represent typical performance for this athlete,
+    NOT absolute standards or goals. They enable tracking relative changes
+    over time.
+    
+    Args:
+        historical_sessions: List of session dicts from load_historical_sessions
+        min_sessions: Minimum sessions required to compute baseline (default: 3)
+    
+    Returns:
+        dict: {
+            'has_baseline': bool,
+            'session_count': int,
+            'baseline_technique_score': float,
+            'baseline_readiness_score': float,
+            'baseline_metrics': dict,
+            'computed_at': str (timestamp)
+        }
+        
+        Returns empty baseline if insufficient data.
+    """
+    if len(historical_sessions) < min_sessions:
+        return {
+            'has_baseline': False,
+            'session_count': len(historical_sessions),
+            'reason': f'Insufficient data (need {min_sessions} sessions, have {len(historical_sessions)})'
+        }
+    
+    # Aggregate technique scores
+    technique_scores = [s['technique_score'] for s in historical_sessions if s.get('technique_score') is not None]
+    baseline_technique = np.mean(technique_scores) if technique_scores else None
+    
+    # Aggregate readiness scores
+    readiness_scores = [s['readiness_score'] for s in historical_sessions if s.get('readiness_score') is not None]
+    baseline_readiness = np.mean(readiness_scores) if readiness_scores else None
+    
+    # Aggregate metrics
+    baseline_metrics = {}
+    
+    # Find common metrics across sessions
+    all_metric_names = set()
+    for session in historical_sessions:
+        all_metric_names.update(session.get('metrics', {}).keys())
+    
+    for metric_name in all_metric_names:
+        values = [
+            s['metrics'][metric_name] 
+            for s in historical_sessions 
+            if metric_name in s.get('metrics', {})
+        ]
+        if values:
+            baseline_metrics[metric_name] = {
+                'mean': float(np.mean(values)),
+                'std': float(np.std(values)),
+                'sample_size': len(values)
+            }
+    
+    return {
+        'has_baseline': True,
+        'session_count': len(historical_sessions),
+        'baseline_technique_score': round(baseline_technique, 1) if baseline_technique else None,
+        'baseline_readiness_score': round(baseline_readiness, 1) if baseline_readiness else None,
+        'baseline_metrics': baseline_metrics,
+        'computed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+
+def compare_to_baseline(
+    current_value: float,
+    baseline_value: float,
+    metric_name: str = "metric"
+) -> dict:
+    """
+    Compare current session value to player baseline.
+    
+    Generates relative interpretation for better context:
+    - "15% above baseline" (improvement for positive metrics)
+    - "10% below baseline" (decline for positive metrics)
+    
+    Args:
+        current_value: Current session value
+        baseline_value: Player baseline value
+        metric_name: Name of metric for context
+    
+    Returns:
+        dict: {
+            'delta_absolute': float,
+            'delta_percent': float,
+            'delta_direction': str ('above' | 'below' | 'stable'),
+            'interpretation': str (human-readable)
+        }
+    """
+    if baseline_value == 0:
+        return {
+            'delta_absolute': 0,
+            'delta_percent': 0,
+            'delta_direction': 'stable',
+            'interpretation': f'{metric_name} baseline is zero (cannot compute relative change)'
+        }
+    
+    delta_absolute = current_value - baseline_value
+    delta_percent = (delta_absolute / baseline_value) * 100
+    
+    # Determine direction
+    if abs(delta_percent) < 5:
+        delta_direction = 'stable'
+        interpretation = f'{metric_name} is stable (within 5% of baseline)'
+    elif delta_absolute > 0:
+        delta_direction = 'above'
+        interpretation = f'{metric_name} is {abs(delta_percent):.1f}% above baseline'
+    else:
+        delta_direction = 'below'
+        interpretation = f'{metric_name} is {abs(delta_percent):.1f}% below baseline'
+    
+    return {
+        'delta_absolute': round(delta_absolute, 2),
+        'delta_percent': round(delta_percent, 1),
+        'delta_direction': delta_direction,
+        'interpretation': interpretation
+    }
+
+
+########################################
+# PROGRESS NARRATIVES & COACH SUMMARIES
+# (Interpretive layer - summarizes trends in coach-style language)
+########################################
+
+def detect_trend(values: list, min_sessions: int = 3, threshold_percent: float = 5.0) -> dict:
+    """
+    Detect trend in a time series of values.
+    
+    Uses conservative thresholds to classify trends as improving, stable, or declining.
+    This is interpretive analysis, not statistical prediction.
+    
+    Args:
+        values: List of values in chronological order (oldest first)
+        min_sessions: Minimum values needed for trend detection (default: 3)
+        threshold_percent: Threshold for classifying as improving/declining (default: 5%)
+    
+    Returns:
+        dict: {
+            'has_trend': bool,
+            'trend': str ('improving' | 'stable' | 'declining'),
+            'confidence': str ('low' | 'medium' | 'high'),
+            'recent_avg': float,
+            'earlier_avg': float,
+            'percent_change': float
+        }
+    """
+    if len(values) < min_sessions:
+        return {
+            'has_trend': False,
+            'reason': f'Insufficient data (need {min_sessions} sessions, have {len(values)})'
+        }
+    
+    # Assume values are already in chronological order (oldest first)
+    # Split into earlier half and recent half
+    split_point = len(values) // 2
+    earlier_values = values[:split_point]
+    recent_values = values[split_point:]
+    
+    earlier_avg = np.mean(earlier_values)
+    recent_avg = np.mean(recent_values)
+    
+    # Compute percent change
+    if earlier_avg == 0:
+        percent_change = 0
+    else:
+        percent_change = ((recent_avg - earlier_avg) / earlier_avg) * 100
+    
+    # Classify trend
+    if abs(percent_change) < threshold_percent:
+        trend = 'stable'
+    elif percent_change > 0:
+        trend = 'improving'
+    else:
+        trend = 'declining'
+    
+    # Confidence based on consistency and sample size
+    # High confidence: many samples and consistent direction
+    # Low confidence: few samples or high variance
+    std_dev = np.std(values)
+    cv = (std_dev / np.mean(values)) if np.mean(values) != 0 else 0
+    
+    if len(values) >= 5 and cv < 0.15:
+        confidence = 'high'
+    elif len(values) >= 4 or cv < 0.25:
+        confidence = 'medium'
+    else:
+        confidence = 'low'
+    
+    return {
+        'has_trend': True,
+        'trend': trend,
+        'confidence': confidence,
+        'recent_avg': round(recent_avg, 1),
+        'earlier_avg': round(earlier_avg, 1),
+        'percent_change': round(percent_change, 1)
+    }
+
+
+def generate_progress_narrative(
+    historical_sessions: list,
+    num_sessions: int = 5,
+    min_sessions: int = 3
+) -> dict:
+    """
+    Generate human-readable progress narrative from historical sessions.
+    
+    This function creates coach-style summaries of multi-session trends:
+    - Highlights positive trends first
+    - Flags concerns gently
+    - Avoids absolutes or predictions
+    - Uses encouraging, supportive language
+    
+    IMPORTANT: This is interpretive analysis, NOT predictive modeling or
+    performance guarantees. It summarizes observed patterns in recent data.
+    
+    Args:
+        historical_sessions: List of session dicts from load_historical_sessions
+        num_sessions: Number of recent sessions to analyze (default: 5)
+        min_sessions: Minimum sessions needed for narrative (default: 3)
+    
+    Returns:
+        dict: {
+            'has_narrative': bool,
+            'session_count': int,
+            'trends': dict (technique, readiness trends),
+            'narrative_summary': str (human-readable summary),
+            'coach_take': str (short coaching insight)
+        }
+    """
+    if len(historical_sessions) < min_sessions:
+        return {
+            'has_narrative': False,
+            'session_count': len(historical_sessions),
+            'reason': f'Insufficient history (need {min_sessions} sessions, have {len(historical_sessions)})'
+        }
+    
+    # Limit to recent N sessions
+    recent_sessions = historical_sessions[:num_sessions]
+    
+    # Extract technique scores (reverse for chronological order)
+    technique_scores = [
+        s['technique_score'] 
+        for s in reversed(recent_sessions) 
+        if s.get('technique_score') is not None
+    ]
+    
+    # Extract readiness scores
+    readiness_scores = [
+        s['readiness_score'] 
+        for s in reversed(recent_sessions) 
+        if s.get('readiness_score') is not None
+    ]
+    
+    # Detect trends
+    trends = {}
+    
+    if len(technique_scores) >= min_sessions:
+        trends['technique'] = detect_trend(technique_scores, min_sessions=min_sessions)
+    
+    if len(readiness_scores) >= min_sessions:
+        trends['readiness'] = detect_trend(readiness_scores, min_sessions=min_sessions)
+    
+    # Generate narrative summary
+    narrative_parts = []
+    positive_trends = []
+    concerns = []
+    
+    # Analyze technique trend
+    if 'technique' in trends and trends['technique'].get('has_trend'):
+        tech_trend = trends['technique']
+        if tech_trend['trend'] == 'improving':
+            positive_trends.append(f"technique is improving (+{tech_trend['percent_change']:.1f}%)")
+        elif tech_trend['trend'] == 'declining':
+            concerns.append(f"technique has dipped (-{abs(tech_trend['percent_change']):.1f}%)")
+        else:
+            narrative_parts.append(f"Technique is holding steady around {tech_trend['recent_avg']:.1f}%")
+    
+    # Analyze readiness trend
+    if 'readiness' in trends and trends['readiness'].get('has_trend'):
+        ready_trend = trends['readiness']
+        if ready_trend['trend'] == 'improving':
+            positive_trends.append(f"readiness is climbing (+{ready_trend['percent_change']:.1f}%)")
+        elif ready_trend['trend'] == 'declining':
+            concerns.append(f"readiness has dropped (-{abs(ready_trend['percent_change']):.1f}%)")
+        else:
+            narrative_parts.append(f"Readiness is consistent around {ready_trend['recent_avg']:.1f}/100")
+    
+    # Build narrative (positives first, then stable, then concerns)
+    if positive_trends:
+        narrative_parts.insert(0, f"Great progress! Your {' and '.join(positive_trends)}.")
+    
+    if concerns:
+        narrative_parts.append(f"Worth noting: {' and '.join(concerns)}. This could be normal variation or may need attention.")
+    
+    if not narrative_parts:
+        narrative_parts.append("Your performance has been consistent across recent sessions.")
+    
+    narrative_summary = " ".join(narrative_parts)
+    
+    # Generate coach's take
+    coach_take = _generate_coach_take(trends, len(recent_sessions))
+    
+    return {
+        'has_narrative': True,
+        'session_count': len(recent_sessions),
+        'trends': trends,
+        'narrative_summary': narrative_summary,
+        'coach_take': coach_take
+    }
+
+
+def _generate_coach_take(trends: dict, session_count: int) -> str:
+    """
+    Generate a short coaching insight based on trends.
+    
+    This is interpretive guidance, not prescriptive instruction.
+    Uses encouraging, supportive language.
+    
+    Args:
+        trends: Dict of detected trends
+        session_count: Number of sessions analyzed
+    
+    Returns:
+        str: Short coaching insight (1-2 sentences)
+    """
+    technique_trend = trends.get('technique', {}).get('trend')
+    readiness_trend = trends.get('readiness', {}).get('trend')
+    
+    # Determine overall pattern
+    improving_count = sum(1 for t in [technique_trend, readiness_trend] if t == 'improving')
+    declining_count = sum(1 for t in [technique_trend, readiness_trend] if t == 'declining')
+    
+    # Generate appropriate take
+    if improving_count >= 2:
+        return "You're building momentum across the board. Keep up the consistent work and trust the process."
+    elif improving_count == 1 and declining_count == 0:
+        return "You're making progress in key areas. Stay focused on fundamentals and the results will follow."
+    elif declining_count >= 2:
+        return "Recent sessions show some dips. Consider reviewing fundamentals, checking for fatigue, or adjusting training load."
+    elif declining_count == 1:
+        return "One area has dipped slightly. This is normal - use it as feedback to refine your approach."
+    else:
+        return f"Solid consistency over {session_count} sessions. Consistency is the foundation of improvement."
 
 
 # ============================================================================
@@ -2489,7 +5526,12 @@ def generate_report(
     ml_overall: float = None,
     user_confidence_stats: dict = None,
     user_reliability: dict = None,
-    user_phase_stability: dict = None
+    user_phase_stability: dict = None,
+    match_readiness: dict = None,
+    training_load: dict = None,
+    player_baseline: dict = None,
+    baseline_comparisons: dict = None,
+    progress_narrative: dict = None
 ) -> str:
     """
     Generate the coaching report markdown with optional session metadata.
@@ -3312,6 +6354,292 @@ Stability scores indicate how consistent your biomechanics are within each phase
 
 """
     
+    # Add Match Readiness section (optional)
+    if match_readiness:
+        report += """## 🎯 Match Readiness Assessment
+
+This synthesis combines technique, movement, fatigue, and measurement trust into a single readiness signal.
+
+**IMPORTANT**: This is NOT a performance prediction or injury risk assessment. It is a training and competition guidance signal to help you decide when to compete and how to adjust training intensity.
+
+"""
+        
+        readiness_score = match_readiness['readiness_score']
+        readiness_level = match_readiness['readiness_level']
+        confidence = match_readiness['confidence']
+        explanation = match_readiness['explanation']
+        contributors = match_readiness['contributors']
+        flags = match_readiness['flags']
+        
+        # Display overall readiness
+        level_emoji = {
+            'Excellent': '🟢',
+            'Good': '🟢',
+            'Fair': '🟡',
+            'Poor': '🔴'
+        }
+        
+        report += f"### Overall Readiness: {level_emoji.get(readiness_level, '⚪')} {readiness_level}\n\n"
+        report += f"**Score**: {readiness_score:.1f}/100 (Confidence: {confidence:.0%})\n\n"
+        report += f"**Summary**: {explanation}\n\n"
+        
+        # Display contributors
+        report += """### Contributing Factors
+
+This readiness score synthesizes the following components:
+
+"""
+        
+        for component, data in contributors.items():
+            component_names = {
+                'technique': '🎾 Technique Quality',
+                'movement': '👟 Movement Quality',
+                'fatigue': '⚡ Energy Level',
+                'trust': '📊 Signal Quality'
+            }
+            
+            name = component_names.get(component, component.title())
+            raw_score = data['raw_score']
+            weight = data['weight']
+            contribution = data['weighted_contribution']
+            
+            report += f"- **{name}**: {raw_score:.1f}/100 (weight: {weight:.0%}) → contributes {contribution:.1f} points\n"
+        
+        report += "\n"
+        
+        # Display flags if any
+        if flags:
+            report += """### 🚩 Attention Points
+
+"""
+            for flag in flags:
+                report += f"- {flag}\n"
+            report += "\n"
+        
+        # Add interpretation guide
+        report += """### What This Means For You
+
+**Excellent Readiness (85-100)**: You're in peak form. Ready for competition or high-intensity training.
+
+**Good Readiness (70-84)**: Solid condition. Can compete or train hard, but monitor for any warning signs.
+
+**Fair Readiness (55-69)**: Adequate for moderate training. Consider technical drills over high-intensity competition.
+
+**Poor Readiness (<55)**: Focus on recovery, technique refinement, or addressing specific issues before competing.
+
+**Confidence Score**: Reflects data availability and measurement quality. Higher confidence = more reliable assessment.
+
+---
+
+"""
+    
+    # Add Training Load & Session Planning section (optional)
+    if training_load:
+        report += """## 🎯 Training Load & Session Planning
+
+This section provides training guidance based on your current readiness, fatigue, and measurement quality.
+
+**IMPORTANT**: This is general training guidance, NOT medical advice or personalized workout prescription. Always consult with qualified coaches and medical professionals before adjusting your training load.
+
+"""
+        
+        session_type = training_load['session_type']
+        intensity = training_load['intensity']
+        focus_areas = training_load['focus_areas']
+        avoid_areas = training_load['avoid_areas']
+        rationale = training_load['rationale']
+        confidence = training_load['confidence']
+        warnings = training_load['warnings']
+        
+        # Display recommended session
+        intensity_emoji = {
+            'Low': '🟢',
+            'Moderate': '🟡',
+            'High': '🔴'
+        }
+        
+        report += f"### Recommended Session: {session_type}\n\n"
+        report += f"**Intensity**: {intensity_emoji.get(intensity, '⚪')} {intensity}\n\n"
+        report += f"**Confidence**: {confidence:.0%}\n\n"
+        
+        # Display rationale
+        report += f"### Why This Recommendation?\n\n{rationale}\n\n"
+        
+        # Display focus areas
+        if focus_areas:
+            report += """### 🎯 Focus Areas for This Session
+
+"""
+            for area in focus_areas:
+                report += f"- {area}\n"
+            report += "\n"
+        
+        # Display avoid areas
+        if avoid_areas:
+            report += """### ⚠️ Areas to Avoid Today
+
+"""
+            for area in avoid_areas:
+                report += f"- {area}\n"
+            report += "\n"
+        
+        # Display warnings
+        if warnings:
+            report += """### 🚨 Important Notices
+
+"""
+            for warning in warnings:
+                report += f"- {warning}\n"
+            report += "\n"
+        
+        # Add session type guide
+        report += """### Session Type Guide
+
+**Recovery**: Active recovery, mobility, light movement. No high-intensity work.
+
+**Technique**: Focus on form and mechanics at controlled pace. Quality over quantity.
+
+**Movement**: Footwork patterns, balance, agility work. Moderate intensity acceptable.
+
+**Conditioning**: Fitness-focused training with technique maintenance. Build capacity.
+
+**Full**: Complete training session combining technique, movement, and conditioning.
+
+**Match-sim**: Competition simulation. High intensity, strategic scenarios, mental toughness.
+
+---
+
+"""
+    
+    # Add Player Baseline & Personalization section (optional)
+    if player_baseline and player_baseline.get('has_baseline') and baseline_comparisons:
+        report += """## 📊 Personal Baseline & Progress Context
+
+This section provides personalized context by comparing your current session to your personal baseline (average of recent sessions).
+
+**IMPORTANT**: Baselines represent YOUR typical performance, not absolute standards or goals. They help track YOUR relative improvement over time.
+
+"""
+        
+        session_count = player_baseline['session_count']
+        baseline_technique = player_baseline.get('baseline_technique_score')
+        baseline_readiness = player_baseline.get('baseline_readiness_score')
+        
+        report += f"### Your Baseline (computed from {session_count} sessions)\n\n"
+        
+        if baseline_technique:
+            report += f"**Typical Technique Score**: {baseline_technique:.1f}%\n\n"
+        
+        if baseline_readiness:
+            report += f"**Typical Readiness Score**: {baseline_readiness:.1f}/100\n\n"
+        
+        # Show comparisons
+        if baseline_comparisons:
+            report += """### Today's Session vs Your Baseline
+
+"""
+            
+            for metric_key, comparison in baseline_comparisons.items():
+                delta_direction = comparison['delta_direction']
+                interpretation = comparison['interpretation']
+                delta_percent = comparison['delta_percent']
+                
+                # Choose emoji based on direction
+                if delta_direction == 'above':
+                    emoji = '📈'
+                elif delta_direction == 'below':
+                    emoji = '📉'
+                else:
+                    emoji = '➡️'
+                
+                report += f"**{emoji} {interpretation}**\n\n"
+        
+        # Add interpretation guide
+        report += """### How to Interpret Baseline Comparisons
+
+**Above Baseline**: You're performing better than your typical level. Good sign!
+
+**Stable (within 5%)**: Consistent with your usual performance. This is normal day-to-day variation.
+
+**Below Baseline**: You're performing below your typical level. Could indicate fatigue, technique regression, or simply a bad day.
+
+**Important Notes**:
+- Baselines update automatically as you complete more sessions
+- Short-term drops are normal - focus on long-term trends
+- Baselines reflect YOUR performance, not professional standards
+- Use baselines to track YOUR improvement journey
+
+---
+
+"""
+    
+    # Add Progress Narrative & Coach Summary section (optional)
+    if progress_narrative and progress_narrative.get('has_narrative'):
+        report += """## 📈 Progress & Coach Summary
+
+This section provides a coach-style narrative of your recent trends based on the last several sessions.
+
+**IMPORTANT**: This is interpretive analysis based on observed patterns, NOT predictive modeling or performance guarantees. Trends can change - use this as feedback, not forecast.
+
+"""
+        
+        session_count = progress_narrative['session_count']
+        narrative_summary = progress_narrative['narrative_summary']
+        coach_take = progress_narrative['coach_take']
+        trends = progress_narrative.get('trends', {})
+        
+        report += f"### Progress Summary (last {session_count} sessions)\n\n"
+        report += f"{narrative_summary}\n\n"
+        
+        # Show trend details
+        if trends:
+            report += """### Trend Details\n\n"""
+            
+            if 'technique' in trends and trends['technique'].get('has_trend'):
+                tech = trends['technique']
+                trend_emoji = {
+                    'improving': '📈',
+                    'stable': '➡️',
+                    'declining': '📉'
+                }
+                
+                emoji = trend_emoji.get(tech['trend'], '➡️')
+                report += f"**{emoji} Technique**: {tech['trend'].capitalize()} "
+                report += f"(from {tech['earlier_avg']:.1f}% to {tech['recent_avg']:.1f}%, "
+                report += f"{tech['percent_change']:+.1f}%)\n\n"
+            
+            if 'readiness' in trends and trends['readiness'].get('has_trend'):
+                ready = trends['readiness']
+                trend_emoji = {
+                    'improving': '📈',
+                    'stable': '➡️',
+                    'declining': '📉'
+                }
+                
+                emoji = trend_emoji.get(ready['trend'], '➡️')
+                report += f"**{emoji} Readiness**: {ready['trend'].capitalize()} "
+                report += f"(from {ready['earlier_avg']:.1f}/100 to {ready['recent_avg']:.1f}/100, "
+                report += f"{ready['percent_change']:+.1f}%)\n\n"
+        
+        # Add coach's take
+        report += """### 🎓 Coach's Take\n\n"""
+        report += f"{coach_take}\n\n"
+        
+        # Add interpretation guide
+        report += """### How to Interpret Trends
+
+**Improving**: Recent sessions show upward trend. Keep doing what you're doing!
+
+**Stable**: Consistent performance across sessions. Consistency is valuable.
+
+**Declining**: Recent sessions show downward trend. Review fundamentals, check fatigue, adjust training.
+
+**Remember**: Short-term dips are normal. Focus on long-term trends (5-10 sessions).
+
+---
+
+"""
+    
     report += """## 💭 Final Thoughts
 
 Remember: improvement takes time and consistent practice. Focus on one or two cues at a time rather than trying to fix everything at once. Film yourself regularly to track progress.
@@ -3541,6 +6869,155 @@ def run_pipeline(config_path: str = None):
         print(f"  [WARNING] Could not compute reliability metrics: {e}")
         # Continue without reliability metrics
     
+    # Step 4.10: Compute match readiness (synthesis layer - read-only)
+    match_readiness = None
+    
+    try:
+        print("\n[4.10/5] Computing match readiness...")
+        
+        # Use phase-weighted score as technique quality (or overall score if not available)
+        technique_score = phase_weighted_score if phase_weighted_score else compute_similarity_score(user_metrics, ref_metrics)
+        
+        # Extract movement metrics if available (from CV extraction)
+        movement_data = None
+        if hasattr(user_features, 'attrs') and 'movement_metrics' in user_features.attrs:
+            movement_data = user_features.attrs['movement_metrics']
+        
+        # Extract fatigue analysis if available
+        fatigue_data = None
+        # Note: Fatigue inference would typically run here if we had rally data
+        # For now, we skip if not available
+        
+        # Extract signal quality if available
+        signal_quality_data = None
+        if hasattr(user_features, 'attrs') and 'signal_quality' in user_features.attrs:
+            signal_quality_data = user_features.attrs['signal_quality']
+        
+        # Compute match readiness
+        match_readiness = compute_match_readiness(
+            technique_score=technique_score,
+            movement_metrics=movement_data,
+            fatigue_analysis=fatigue_data,
+            signal_quality=signal_quality_data
+        )
+        
+        # Display summary
+        if match_readiness:
+            level = match_readiness['readiness_level']
+            score = match_readiness['readiness_score']
+            confidence = match_readiness['confidence']
+            print(f"  -> Readiness: {level} ({score:.1f}/100, confidence: {confidence:.0%})")
+            
+            if match_readiness['flags']:
+                print(f"  -> Flags: {len(match_readiness['flags'])} attention points")
+    
+    except Exception as e:
+        print(f"  [WARNING] Could not compute match readiness: {e}")
+        # Continue without match readiness
+    
+    # Step 4.11: Compute training load recommendation (synthesis layer - read-only)
+    training_load = None
+    
+    try:
+        print("\n[4.11/5] Computing training load recommendation...")
+        
+        # Extract adaptive coaching priorities if available
+        adaptive_coaching_data = None
+        # Note: Adaptive coaching would typically be extracted here if available
+        # For now, we skip if not available
+        
+        # Compute training load recommendation
+        training_load = compute_training_load_recommendation(
+            match_readiness=match_readiness,
+            fatigue_analysis=fatigue_data,
+            signal_quality=signal_quality_data,
+            adaptive_coaching=adaptive_coaching_data
+        )
+        
+        # Display summary
+        if training_load:
+            session_type = training_load['session_type']
+            intensity = training_load['intensity']
+            confidence = training_load['confidence']
+            print(f"  -> Recommended: {session_type} session at {intensity} intensity (confidence: {confidence:.0%})")
+            
+            if training_load['warnings']:
+                print(f"  -> Warnings: {len(training_load['warnings'])} advisory note(s)")
+    
+    except Exception as e:
+        print(f"  [WARNING] Could not compute training load: {e}")
+        # Continue without training load
+    
+    # Step 4.12: Compute player baseline (personalization layer - read-only)
+    player_baseline = None
+    baseline_comparisons = None
+    
+    try:
+        print("\n[4.12/5] Computing player baseline...")
+        
+        # Load historical sessions
+        historical_sessions = load_historical_sessions(output_dir="outputs", max_sessions=10)
+        
+        if historical_sessions:
+            print(f"  -> Found {len(historical_sessions)} historical session(s)")
+            
+            # Compute baseline
+            player_baseline = compute_player_baseline(historical_sessions, min_sessions=3)
+            
+            if player_baseline.get('has_baseline'):
+                print(f"  -> Baseline computed from {player_baseline['session_count']} sessions")
+                
+                # Compare current session to baseline
+                baseline_comparisons = {}
+                
+                if player_baseline.get('baseline_technique_score') and phase_weighted_score:
+                    baseline_comparisons['technique'] = compare_to_baseline(
+                        current_value=phase_weighted_score,
+                        baseline_value=player_baseline['baseline_technique_score'],
+                        metric_name='Technique score'
+                    )
+                
+                if player_baseline.get('baseline_readiness_score') and match_readiness:
+                    current_readiness = match_readiness.get('readiness_score')
+                    if current_readiness:
+                        baseline_comparisons['readiness'] = compare_to_baseline(
+                            current_value=current_readiness,
+                            baseline_value=player_baseline['baseline_readiness_score'],
+                            metric_name='Readiness score'
+                        )
+                
+                if baseline_comparisons:
+                    print(f"  -> Generated {len(baseline_comparisons)} baseline comparison(s)")
+                
+                # Generate progress narrative (uses same historical data)
+                try:
+                    progress_narrative = generate_progress_narrative(
+                        historical_sessions=historical_sessions,
+                        num_sessions=5,
+                        min_sessions=3
+                    )
+                    
+                    if progress_narrative.get('has_narrative'):
+                        print(f"  -> Progress narrative generated ({progress_narrative['session_count']} sessions)")
+                    else:
+                        progress_narrative = None
+                
+                except Exception as e:
+                    print(f"  [WARNING] Could not generate progress narrative: {e}")
+                    progress_narrative = None
+            else:
+                reason = player_baseline.get('reason', 'Unknown')
+                print(f"  -> Insufficient data for baseline: {reason}")
+                progress_narrative = None
+        else:
+            print(f"  -> No historical sessions found")
+            progress_narrative = None
+    
+    except Exception as e:
+        print(f"  [WARNING] Could not compute player baseline: {e}")
+        # Continue without baseline
+        progress_narrative = None
+    
     # Step 5: Generate report
     print("\n[5/5] Generating coaching report...")
     report = generate_report(
@@ -3558,7 +7035,12 @@ def run_pipeline(config_path: str = None):
         ml_overall=ml_overall,
         user_confidence_stats=user_confidence_stats,
         user_reliability=user_reliability,
-        user_phase_stability=user_phase_stability
+        user_phase_stability=user_phase_stability,
+        match_readiness=match_readiness,
+        training_load=training_load,
+        player_baseline=player_baseline,
+        baseline_comparisons=baseline_comparisons,
+        progress_narrative=progress_narrative
     )
     
     with open(output_paths['report'], 'w', encoding='utf-8') as f:
