@@ -8,6 +8,7 @@ import sys
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import List, Dict, Tuple, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -5531,7 +5532,9 @@ def generate_report(
     training_load: dict = None,
     player_baseline: dict = None,
     baseline_comparisons: dict = None,
-    progress_narrative: dict = None
+    progress_narrative: dict = None,
+    ball_stats: dict = None,
+    rally_data: dict = None
 ) -> str:
     """
     Generate the coaching report markdown with optional session metadata.
@@ -6640,6 +6643,101 @@ This section provides a coach-style narrative of your recent trends based on the
 
 """
     
+    # ==================================================================
+    # Ball & Rally Intelligence Section (NEW - Tennis Pro Analytics)
+    # ==================================================================
+    if ball_stats and rally_data:
+        report += """## 🎾 Ball & Rally Intelligence
+
+*Ball tracking powered by YOLOv8 + Tennis Pro Analytics*
+
+"""
+        
+        # Ball Statistics
+        report += """### ⚡ Ball Statistics
+
+"""
+        report += f"**Total Ball Detections**: {ball_stats['total_detections']}\n\n"
+        report += f"**Average Ball Speed**: {ball_stats['avg_speed']:.1f} px/frame\n\n"
+        report += f"**Maximum Ball Speed**: {ball_stats['max_speed']:.1f} px/frame\n\n"
+        
+        # Speed Distribution
+        report += """### 📊 Speed Distribution
+
+"""
+        dist = ball_stats['speed_distribution']
+        total = sum(dist.values()) if dist.values() else 1
+        
+        for category, emoji in [('slow', '🟢'), ('medium', '🟡'), ('fast', '🟠'), ('bullet', '🔴')]:
+            count = dist.get(category, 0)
+            pct = (count / total) * 100 if total > 0 else 0
+            report += f"- **{emoji} {category.upper()}**: {pct:.1f}% ({count} shots)\n"
+        
+        report += "\n"
+        
+        # Rally Statistics
+        if rally_data and rally_data.get('stats'):
+            rally_stats = rally_data['stats']
+            report += """### 🏓 Rally Analysis
+
+"""
+            report += f"**Total Rallies Detected**: {rally_stats.get('total_rallies', 0)}\n\n"
+            
+            if rally_stats.get('total_rallies', 0) > 0:
+                report += f"**Average Rally Length**: {rally_stats.get('avg_rally_length', 0):.1f} shots\n\n"
+                report += f"**Longest Rally**: {rally_stats.get('longest_rally', 0)} shots\n\n"
+                report += f"**Shortest Rally**: {rally_stats.get('shortest_rally', 0)} shots\n\n"
+                report += f"**Average Rally Duration**: {rally_stats.get('avg_duration', 0):.1f} seconds\n\n"
+        
+        # Court Zones
+        report += """### 📍 Shot Placement (Court Zones)
+
+"""
+        zones = ball_stats.get('court_zones', {})
+        
+        # Horizontal zones
+        report += "**Horizontal Distribution**:\n"
+        h_zones = ['left', 'center', 'right']
+        h_total = sum(zones.get(z, 0) for z in h_zones)
+        for zone in h_zones:
+            count = zones.get(zone, 0)
+            pct = (count / h_total) * 100 if h_total > 0 else 0
+            report += f"- {zone.capitalize()}: {pct:.1f}% ({count} shots)\n"
+        
+        report += "\n**Vertical Distribution**:\n"
+        v_zones = ['net', 'mid', 'baseline']
+        v_total = sum(zones.get(z, 0) for z in v_zones)
+        for zone in v_zones:
+            count = zones.get(zone, 0)
+            pct = (count / v_total) * 100 if v_total > 0 else 0
+            report += f"- {zone.capitalize()}: {pct:.1f}% ({count} shots)\n"
+        
+        report += "\n"
+        
+        # Visualizations reference
+        if session_id:
+            report += """### 📸 Visualizations
+
+Check the following files in your session directory:
+
+- **`heatmaps/court_zones.png`**: Shot placement heatmap
+- **`heatmaps/speed_distribution.png`**: Speed distribution chart
+- **`overlay_broadcast.mp4`**: Broadcast-style video with ball tracking overlay
+
+"""
+        
+        report += """### 💡 What This Means
+
+**Speed Distribution**: A good mix of speeds shows tactical variety. Too many slow shots may indicate hesitancy; too many fast shots may suggest loss of control.
+
+**Rally Length**: Longer rallies indicate consistency and endurance. Shorter rallies may suggest aggressive play or unforced errors.
+
+**Court Zones**: Balanced zone distribution shows court coverage and tactical awareness. Heavy concentration in one zone may reveal predictability.
+
+---
+
+"""
+    
     report += """## 💭 Final Thoughts
 
 Remember: improvement takes time and consistent practice. Focus on one or two cues at a time rather than trying to fix everything at once. Film yourself regularly to track progress.
@@ -6651,6 +6749,156 @@ Keep grinding—your backhand is going to be a weapon!
 """
     
     return report
+
+
+# ============================================================================
+# Ball Tracking & Rally Analysis (Tennis Pro Analytics Integration)
+# ============================================================================
+
+def is_ball_tracking_available() -> bool:
+    """Check if YOLO model is available for ball tracking."""
+    model_path = Path("models/best.pt")
+    return model_path.exists()
+
+
+def run_ball_detection(video_path: str, model_path: str = "models/best.pt", fps: float = 30.0) -> List:
+    """
+    Run YOLOv8 ball tracking on video.
+    
+    Args:
+        video_path: Path to video file
+        model_path: Path to YOLO model weights
+        fps: Video frame rate (for timestamp calculation)
+    
+    Returns:
+        List of Ball objects from ball_tracking_models
+    """
+    try:
+        from ultralytics import YOLO
+        from vision.ball_tracking_models import Ball, CourtZoneAnalyzer
+        import math
+        
+        if not Path(model_path).exists():
+            print(f"  [WARN] Ball tracking model not found at {model_path}")
+            return []
+        
+        print(f"\n[BALL TRACKING] Initializing YOLOv8...")
+        model = YOLO(model_path)
+        
+        # Open video to get dimensions
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            print(f"  [WARN] Cannot open video for ball tracking: {video_path}")
+            return []
+        
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        
+        print(f"[BALL TRACKING] Detecting balls in {total_frames} frames...")
+        
+        # Run detection with tracking
+        results = model.track(str(video_path), persist=True, conf=0.3, verbose=False)
+        
+        ball_trajectory = []
+        prev_ball = None
+        
+        for frame_idx, result in enumerate(results):
+            if frame_idx % 50 == 0:
+                progress = (frame_idx / total_frames) * 100
+                print(f"  Ball tracking progress: {progress:.1f}%", end='\r')
+            
+            # Get best detection for this frame
+            best_detection = None
+            best_conf = 0
+            
+            if result.boxes is not None:
+                for box in result.boxes:
+                    conf = float(box.conf[0])
+                    if conf > best_conf:
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                        best_detection = (cx, cy, conf)
+                        best_conf = conf
+            
+            if best_detection:
+                cx, cy, conf = best_detection
+                
+                # Calculate speed from previous frame
+                speed = 0.0
+                if prev_ball:
+                    dx = cx - prev_ball.x
+                    dy = cy - prev_ball.y
+                    speed = math.sqrt(dx**2 + dy**2)
+                
+                # Create Ball object
+                ball = Ball(
+                    frame_id=frame_idx + 1,  # 1-indexed
+                    x=cx,
+                    y=cy,
+                    speed=speed,
+                    timestamp=(frame_idx + 1) / fps,
+                    confidence=conf
+                )
+                
+                ball_trajectory.append(ball)
+                prev_ball = ball
+        
+        print(f"\n[BALL TRACKING] Detected {len(ball_trajectory)} ball positions")
+        return ball_trajectory
+        
+    except ImportError:
+        print("  [WARN] ultralytics not installed. Ball tracking disabled.")
+        print("  Install with: pip install ultralytics")
+        return []
+    except Exception as e:
+        print(f"  [WARN] Ball tracking failed: {e}")
+        return []
+
+
+def compute_ball_statistics(ball_trajectory: List) -> Dict:
+    """
+    Compute statistics from ball trajectory.
+    
+    Args:
+        ball_trajectory: List of Ball objects
+    
+    Returns:
+        Dictionary with ball statistics
+    """
+    from vision.ball_tracking_models import RallyStatistics, CourtZoneAnalyzer
+    
+    if not ball_trajectory:
+        return None
+    
+    stats = RallyStatistics()
+    stats.total_frames = len(ball_trajectory)
+    stats.ball_detections = len(ball_trajectory)
+    
+    # Get frame dimensions from first ball (assuming consistent video)
+    # Note: We'd need to pass frame dimensions, for now use placeholders
+    frame_width = 1920  # Will be updated in run_pipeline
+    frame_height = 1080
+    
+    for ball in ball_trajectory:
+        # Update speed stats
+        if ball.speed > 0:
+            stats.update_speed_stats(ball.speed)
+        
+        # Update court zones
+        h_zone, v_zone = CourtZoneAnalyzer.get_zone(
+            ball.x, ball.y, frame_width, frame_height
+        )
+        stats.update_court_zone(h_zone, v_zone)
+    
+    return {
+        'total_detections': stats.ball_detections,
+        'avg_speed': stats.avg_ball_speed,
+        'max_speed': stats.max_ball_speed,
+        'speed_distribution': stats.speed_distribution,
+        'court_zones': stats.court_zones_hit
+    }
 
 
 def run_pipeline(config_path: str = None):
@@ -6729,6 +6977,8 @@ def run_pipeline(config_path: str = None):
     
     print("  -> Reference overlay...")
     create_overlay_video(REF_VIDEO, str(output_paths['overlay_ref']))
+    
+    # Note: Broadcast overlay with ball tracking will be created in Step 4.9 after ball detection
     
     # Step 3: Compute features
     print("\n[3/5] Computing biomechanical features...")
@@ -7018,6 +7268,117 @@ def run_pipeline(config_path: str = None):
         # Continue without baseline
         progress_narrative = None
     
+    # Step 4.9: Ball tracking and rally analysis (OPTIONAL - graceful degradation)
+    ball_trajectory = []
+    ball_stats = None
+    rally_data = None
+    
+    if is_ball_tracking_available():
+        try:
+            print("\n[4.9/5] Running ball tracking & rally analysis...")
+            ball_trajectory = run_ball_detection(USER_VIDEO, fps=user_fps)
+            
+            if ball_trajectory:
+                # Compute ball statistics
+                ball_stats = compute_ball_statistics(ball_trajectory)
+                
+                # Segment into rallies (will be used in next step)
+                from vision.ball_tracking_models import segment_rallies, compute_rally_statistics
+                rallies = segment_rallies(ball_trajectory, user_fps)
+                rally_stats = compute_rally_statistics(rallies)
+                
+                rally_data = {
+                    'rallies': rallies,
+                    'stats': rally_stats
+                }
+                
+                print(f"  -> Ball tracking complete: {len(ball_trajectory)} detections")
+                print(f"  -> Rally analysis: {rally_stats.get('total_rallies', 0)} rallies detected")
+                
+                # Generate heatmaps if we have session directory
+                if session_id and ball_trajectory:
+                    try:
+                        from vision.broadcast_overlay import (
+                            generate_player_heatmap,
+                            generate_court_zones_heatmap,
+                            generate_speed_distribution_chart
+                        )
+                        from vision.ball_tracking_models import RallyStatistics
+                        
+                        # Create heatmaps directory
+                        heatmap_dir = Path("outputs") / session_id / "heatmaps"
+                        heatmap_dir.mkdir(exist_ok=True)
+                        
+                        # Get video dimensions
+                        cap = cv2.VideoCapture(USER_VIDEO)
+                        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        cap.release()
+                        
+                        print("  -> Generating heatmaps...")
+                        
+                        # Court zones heatmap (ball placement)
+                        generate_court_zones_heatmap(
+                            ball_trajectory,
+                            frame_width,
+                            frame_height,
+                            str(heatmap_dir / "court_zones.png")
+                        )
+                        
+                        # Speed distribution chart
+                        if ball_stats:
+                            rally_stats_obj = RallyStatistics()
+                            rally_stats_obj.speed_distribution = ball_stats['speed_distribution']
+                            generate_speed_distribution_chart(
+                                rally_stats_obj,
+                                str(heatmap_dir / "speed_distribution.png")
+                            )
+                        
+                        print(f"  -> Heatmaps saved to {heatmap_dir}")
+                    except Exception as e:
+                        print(f"  [WARNING] Heatmap generation failed: {e}")
+                
+                # Generate broadcast overlay video with ball tracking
+                if session_id and ball_trajectory and ball_stats:
+                    try:
+                        from vision.broadcast_overlay import create_broadcast_overlay
+                        from vision.ball_tracking_models import RallyStatistics
+                        
+                        print("  -> Creating broadcast-style overlay video...")
+                        
+                        # Create RallyStatistics object
+                        rally_stats_obj = RallyStatistics()
+                        rally_stats_obj.ball_detections = ball_stats['total_detections']
+                        rally_stats_obj.avg_ball_speed = ball_stats['avg_speed']
+                        rally_stats_obj.max_ball_speed = ball_stats['max_speed']
+                        rally_stats_obj.speed_distribution = ball_stats['speed_distribution']
+                        rally_stats_obj.court_zones_hit = ball_stats['court_zones']
+                        
+                        # Create broadcast overlay
+                        broadcast_output = Path("outputs") / session_id / "overlay_broadcast.mp4"
+                        create_broadcast_overlay(
+                            USER_VIDEO,
+                            ball_trajectory,
+                            str(broadcast_output),
+                            rally_stats=rally_stats_obj,
+                            fps=user_fps
+                        )
+                        
+                        print(f"  -> Broadcast overlay saved: {broadcast_output}")
+                    except Exception as e:
+                        print(f"  [WARNING] Broadcast overlay creation failed: {e}")
+            else:
+                print("  -> No ball detections found")
+        except Exception as e:
+            print(f"  [WARNING] Ball tracking failed: {e}")
+            print("  -> Continuing with pose-only analysis")
+            ball_trajectory = []
+            ball_stats = None
+            rally_data = None
+    else:
+        print("\n[4.9/5] Ball tracking disabled (no YOLO model found)")
+        print("  -> To enable ball tracking, see models/README.md")
+    
     # Step 5: Generate report
     print("\n[5/5] Generating coaching report...")
     report = generate_report(
@@ -7040,7 +7401,9 @@ def run_pipeline(config_path: str = None):
         training_load=training_load,
         player_baseline=player_baseline,
         baseline_comparisons=baseline_comparisons,
-        progress_narrative=progress_narrative
+        progress_narrative=progress_narrative,
+        ball_stats=ball_stats,  # NEW: Ball tracking data
+        rally_data=rally_data   # NEW: Rally analysis data
     )
     
     with open(output_paths['report'], 'w', encoding='utf-8') as f:

@@ -105,7 +105,29 @@ def create_overlay_video(video_path: str, output_path: str) -> None:
     
     # Setup video writer
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    
+    # Try H.264 codec (browser-compatible) with fallbacks
+    fourcc = None
+    for codec in ['avc1', 'H264', 'X264', 'mp4v']:
+        try:
+            test_fourcc = cv2.VideoWriter_fourcc(*codec)
+            test_writer = cv2.VideoWriter(output_path, test_fourcc, fps, (width, height))
+            if test_writer.isOpened():
+                fourcc = test_fourcc
+                test_writer.release()
+                if codec == 'mp4v':
+                    print(f"  [WARNING] Using {codec} codec - videos may not play in browser")
+                else:
+                    print(f"  [INFO] Using {codec} codec for browser-compatible video")
+                break
+            test_writer.release()
+        except:
+            continue
+    
+    if fourcc is None:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        print("  [WARNING] No H.264 codec available, using mp4v - videos may not play in browser")
+    
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
     frame_count = 0
