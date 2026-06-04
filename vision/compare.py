@@ -2395,13 +2395,8 @@ def compute_ml_phase_similarity(user_phase_metrics: dict, ref_phase_metrics: dic
             user_vec = user_features.reshape(1, -1)
             ref_vec = ref_features.reshape(1, -1)
             
-            # Normalize features (important for angles with different scales)
-            scaler = StandardScaler()
-            user_vec_scaled = scaler.fit_transform(user_vec)
-            ref_vec_scaled = scaler.transform(ref_vec)
-            
-            # Compute cosine similarity
-            cos_sim = cosine_similarity(user_vec_scaled, ref_vec_scaled)[0, 0]
+            # Compute cosine similarity directly (no StandardScaler - it zeroes single-sample vectors)
+            cos_sim = cosine_similarity(user_vec, ref_vec)[0, 0]
             
             # Convert from [-1, 1] to [0, 100]
             # -1 = 0%, 0 = 50%, 1 = 100%

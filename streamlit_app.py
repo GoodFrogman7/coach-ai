@@ -16,6 +16,12 @@ from datetime import datetime, timedelta
 import re
 import sys
 
+try:
+    from upload_page import render_upload_page
+    UPLOAD_AVAILABLE = True
+except ImportError:
+    UPLOAD_AVAILABLE = False
+
 # Add vision directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -1293,10 +1299,20 @@ def main():
     st.sidebar.title("🎾 Coach AI")
     st.sidebar.markdown("---")
     
+    # Handle programmatic navigation from upload page
+    default_page = st.session_state.pop("navigate_to", "📤 Upload & Analyze")
+
     page = st.sidebar.radio(
         "Navigation",
-        ["🏠 Dashboard", "📈 Progress & Trends", "🏆 Achievements", 
-         "🎯 Reference Comparison", "💪 Training & Drills", "🤖 Ask Coach"]
+        ["📤 Upload & Analyze", "🏠 Dashboard", "📈 Progress & Trends",
+         "🏆 Achievements", "🎯 Reference Comparison", "💪 Training & Drills",
+         "🤖 Ask Coach"],
+        index=["📤 Upload & Analyze", "🏠 Dashboard", "📈 Progress & Trends",
+               "🏆 Achievements", "🎯 Reference Comparison", "💪 Training & Drills",
+               "🤖 Ask Coach"].index(default_page)
+        if default_page in ["📤 Upload & Analyze", "🏠 Dashboard", "📈 Progress & Trends",
+                             "🏆 Achievements", "🎯 Reference Comparison",
+                             "💪 Training & Drills", "🤖 Ask Coach"] else 0
     )
     
     st.sidebar.markdown("---")
@@ -1351,7 +1367,12 @@ def main():
     st.sidebar.markdown("*Version 2.0*")
     
     # Render selected page
-    if page == "🏠 Dashboard":
+    if page == "📤 Upload & Analyze":
+        if UPLOAD_AVAILABLE:
+            render_upload_page()
+        else:
+            st.error("Upload page could not be loaded. Ensure upload_page.py is in the project root.")
+    elif page == "🏠 Dashboard":
         render_dashboard(session_data, streak)
     elif page == "📈 Progress & Trends":
         render_progress_trends()
