@@ -10,7 +10,9 @@ import sys
 import io
 
 # Fix Windows UTF-8 encoding for emoji support
-if sys.platform == 'win32':
+if sys.platform == 'win32' and hasattr(sys.stdout, 'buffer') and sys.stdout.isatty():
+    # Only rewrap a real console; under pytest's output capture sys.stdout is
+    # not a tty and rewrapping it breaks pytest's capture teardown.
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 sys.path.insert(0, 'vision')

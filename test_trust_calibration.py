@@ -14,6 +14,10 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, 'vision')
 
+# Seed RNG so the synthetic quality signals are deterministic (previously the
+# unseeded np.random made the medium-quality assertion flaky, ~4/6 passes).
+np.random.seed(42)
+
 from compare import (
     compute_signal_quality_score,
     modulate_confidence_with_signal_quality,
