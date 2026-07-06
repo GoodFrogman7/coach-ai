@@ -14,6 +14,9 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, 'vision')
 
+# Seed RNG so synthetic pose landmarks are deterministic across runs.
+np.random.seed(42)
+
 from compare import (
     compute_center_of_mass,
     extract_split_step_timing,
