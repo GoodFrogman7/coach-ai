@@ -1,74 +1,103 @@
 """
 upload_page.py
-Upload → Analyze → Result loop for Coach AI.
-Drop this next to streamlit_app.py and import render_upload_page from it.
+Upload -> Analyze -> Result loop for Coach AI.
+
+Renders the "New Analysis" page: the user uploads a stroke video, picks the
+stroke type and a reference, and the full analysis pipeline runs in-app. Kept as
+a standalone module so streamlit_app.py stays focused on the read/dashboard side.
+
+Uses the decomposed pipeline API: run_pipeline(user_video, ref_video, stroke).
 """
 
-import streamlit as st
+import re
 import tempfile
-import shutil
-import threading
-import time
+from datetime import datetime
 from pathlib import Path
 import sys
 
+import streamlit as st
+
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Import defensively so the app still loads (and can show a friendly error) even
+# if the heavy pipeline dependencies (mediapipe, opencv, ...) aren't installed.
+try:
+    from vision.compare import run_pipeline, validate_video
+except Exception:
+    run_pipeline = None
+    validate_video = None
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── config ────────────────────────────────────────────────────────────────────
+STROKE_OPTIONS = ["backhand", "forehand", "serve", "volley", "overhead"]
+DEFAULT_REFERENCE = "data/reference/djokovic_backhand.mp4"
+UPLOAD_DIR = Path("data/user/uploads")
 
-def _save_upload(uploaded_file, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _save_upload(uploaded_file, prefix: str) -> str:
+    """Persist a Streamlit upload to a timestamped file under UPLOAD_DIR."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = Path(uploaded_file.name).suffix or ".mp4"
+    dest = UPLOAD_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}"
     with open(dest, "wb") as f:
-        f.write(uploaded_file.read())
+        f.write(uploaded_file.getbuffer())
+    return str(dest)
 
 
-def _run_pipeline_for_upload(user_video_path: str, result_holder: dict) -> None:
-    """
-    Run the full analysis pipeline in a background thread.
-    Writes the session_id or error into result_holder when done.
-    """
+def _probe_video(uploaded_file) -> dict:
+    """Best-effort metadata probe (width, height, fps, frames) for warnings."""
     try:
-        import vision.compare as vc
-
-        # Temporarily override the module-level USER_VIDEO global
-        original = vc.USER_VIDEO
-        vc.USER_VIDEO = user_video_path
-
-        success = vc.run_pipeline()
-
-        vc.USER_VIDEO = original  # restore
-
-        if success:
-            # Find the session that was just created (newest outputs/ subdir)
-            outputs = Path("outputs")
-            sessions = sorted(
-                [d.name for d in outputs.iterdir() if d.is_dir() and len(d.name) == 19],
-                reverse=True,
-            )
-            result_holder["session_id"] = sessions[0] if sessions else None
-            result_holder["status"] = "done"
-        else:
-            result_holder["status"] = "error"
-            result_holder["error"] = "Pipeline returned False. Check video quality."
-
+        import cv2
+        tmp = Path(tempfile.mktemp(suffix=Path(uploaded_file.name).suffix))
+        tmp.write_bytes(uploaded_file.getvalue())
+        cap = cv2.VideoCapture(str(tmp))
+        ok = cap.isOpened()
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        tmp.unlink(missing_ok=True)
+        return {"ok": ok, "frames": frames, "fps": fps, "w": w, "h": h}
     except Exception as exc:
-        import traceback
-        result_holder["status"] = "error"
-        result_holder["error"] = str(exc)
-        result_holder["traceback"] = traceback.format_exc()
+        return {"ok": None, "error": str(exc)}
 
 
-# ── main render function ──────────────────────────────────────────────────────
+# ── main render function ───────────────────────────────────────────────────────
 
 def render_upload_page():
-    st.title("🎾 Analyze Your Stroke")
+    st.title("🎥 New Analysis")
     st.markdown(
-        "Upload a video of your tennis backhand and get a personalized AI coaching report "
-        "in ~2 minutes."
+        "Upload a stroke video and Coach AI analyzes your technique against a "
+        "professional reference. Analysis runs locally and takes ~1-3 minutes."
     )
 
-    # ── filming tips ─────────────────────────────────────────────────────────
+    if run_pipeline is None or validate_video is None:
+        st.error(
+            "The analysis pipeline could not be imported. Ensure dependencies are "
+            "installed (`pip install -r requirements.txt`) and you're running from "
+            "the project root."
+        )
+        return
+
+    # If a run just finished, show its results (and a way back) instead of the form.
+    finished = st.session_state.get("upload_last_session")
+    if finished:
+        _show_results(finished)
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📊 Open Full Dashboard", use_container_width=True):
+                st.session_state.pop("upload_last_session", None)
+                st.session_state.navigate_to = "🏠 Dashboard"
+                st.rerun()
+        with col2:
+            if st.button("🔄 Analyze Another Video", use_container_width=True):
+                st.session_state.pop("upload_last_session", None)
+                st.rerun()
+        return
+
+    # ── filming tips ──────────────────────────────────────────────────────────
     with st.expander("📷 How to film for best results", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -93,159 +122,115 @@ def render_upload_page():
 
     st.markdown("---")
 
-    # ── uploader ─────────────────────────────────────────────────────────────
-    uploaded = st.file_uploader(
-        "Upload your video",
-        type=["mp4", "mov", "avi", "mkv"],
+    # ── 1. user video ─────────────────────────────────────────────────────────
+    st.subheader("1. Your video")
+    st.caption("Side-on view (perpendicular to the baseline), full body in frame, 720p+ works best.")
+    user_file = st.file_uploader(
+        "Upload your stroke video",
+        type=["mp4", "mov", "avi", "mkv", "m4v"],
         help="MP4 (H.264) recommended. Max ~500 MB.",
+        key="user_video_upload",
     )
 
-    if uploaded is None:
+    if user_file is not None:
+        file_mb = len(user_file.getvalue()) / (1024 * 1024)
+        st.success(f"✅ Received: **{user_file.name}** ({file_mb:.1f} MB)")
+        meta = _probe_video(user_file)
+        if meta.get("ok") is False:
+            st.error("❌ Could not read this video. Try re-exporting as MP4 (H.264).")
+        elif meta.get("ok"):
+            frames, fps, w, h = meta["frames"], meta["fps"], meta["w"], meta["h"]
+            if fps > 0 and frames:
+                st.caption(f"Video: {w}×{h} @ {fps:.0f} fps — {frames} frames ({frames / fps:.1f}s)")
+            if frames and frames < 30:
+                st.warning("⚠️ Video is very short (<30 frames / ~1s) — capture the full stroke.")
+            if 0 < fps < 24:
+                st.warning("⚠️ Frame rate below 24 fps — pose detection may be less accurate.")
+            if 0 < w < 640:
+                st.warning("⚠️ Resolution below 640px wide — consider a higher-quality recording.")
+
+    # ── 2. stroke type ────────────────────────────────────────────────────────
+    st.subheader("2. Stroke type")
+    stroke = st.selectbox("Which stroke is this?", STROKE_OPTIONS, index=0)
+
+    # ── 3. reference ──────────────────────────────────────────────────────────
+    st.subheader("3. Reference")
+    ref_choice = st.radio(
+        "Compare against",
+        ["Built-in professional reference", "Upload my own reference"],
+        index=0,
+    )
+    ref_file = None
+    if ref_choice == "Upload my own reference":
+        ref_file = st.file_uploader(
+            "Upload a reference video",
+            type=["mp4", "mov", "avi", "mkv", "m4v"],
+            key="ref_video_upload",
+        )
+    elif Path(DEFAULT_REFERENCE).exists():
+        st.caption(f"Using built-in reference: {Path(DEFAULT_REFERENCE).name}")
+    else:
+        st.warning(
+            f"Built-in reference not found at `{DEFAULT_REFERENCE}`. "
+            "Upload your own reference video instead."
+        )
+
+    st.markdown("---")
+
+    if user_file is None:
         st.info("Upload a video above to get started.")
         _show_sample_result()
         return
 
-    # Show file info
-    file_mb = len(uploaded.getvalue()) / (1024 * 1024)
-    st.success(f"✅ Received: **{uploaded.name}** ({file_mb:.1f} MB)")
+    # ── analyze ───────────────────────────────────────────────────────────────
+    if not st.button("🔍 Analyze My Stroke", type="primary", use_container_width=True):
+        return
 
-    # Quick video validation via OpenCV
-    try:
-        import cv2, numpy as np
-        tmp_check = Path(tempfile.mktemp(suffix=Path(uploaded.name).suffix))
-        tmp_check.write_bytes(uploaded.getvalue())
-        cap = cv2.VideoCapture(str(tmp_check))
-        ok = cap.isOpened()
-        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cap.release()
-        tmp_check.unlink(missing_ok=True)
+    user_path = _save_upload(user_file, "user")
 
-        if not ok or frames < 30:
-            st.error(
-                "❌ Could not read video or video is too short (need ≥ 30 frames / ~1 second)."
+    if ref_choice == "Upload my own reference":
+        if ref_file is None:
+            st.error("Please upload a reference video, or switch to the built-in reference.")
+            return
+        ref_path = _save_upload(ref_file, "ref")
+    else:
+        ref_path = DEFAULT_REFERENCE
+
+    # Validate both videos are readable before the (slow) pipeline runs.
+    ok_u, msg_u = validate_video(user_path, role="user video")
+    if not ok_u:
+        st.error(f"Your video could not be read: {msg_u}")
+        return
+    ok_r, msg_r = validate_video(ref_path, role="reference video")
+    if not ok_r:
+        st.error(f"Reference video could not be read: {msg_r}")
+        return
+
+    with st.spinner("Analyzing your stroke — pose extraction + reference comparison (~1-3 min)…"):
+        try:
+            success = run_pipeline(user_video=user_path, ref_video=ref_path, stroke=stroke)
+        except Exception as exc:
+            st.error(f"❌ Analysis failed: {exc}")
+            st.markdown(
+                "**Common causes:** the person isn't clearly visible throughout, the "
+                "video is too short, poor/blurry lighting, or an unsupported codec "
+                "(use MP4 H.264)."
             )
             return
 
-        st.caption(f"Video: {w}×{h} @ {fps:.0f} fps — {frames} frames ({frames/fps:.1f}s)")
+    if not success:
+        st.error("Analysis did not complete. Check the terminal running Streamlit for details.")
+        return
 
-        if fps < 24:
-            st.warning("⚠️ Frame rate is below 24 fps — pose detection may be less accurate.")
-        if w < 640:
-            st.warning("⚠️ Resolution is below 640px wide — consider a higher quality recording.")
-
-    except Exception as e:
-        st.warning(f"Could not validate video metadata: {e}. Proceeding anyway.")
-
-    st.markdown("---")
-
-    # ── analyze button ────────────────────────────────────────────────────────
-    if "analysis_state" not in st.session_state:
-        st.session_state.analysis_state = "idle"  # idle | running | done | error
-
-    if st.session_state.analysis_state == "idle":
-        if st.button("🔍 Analyze My Stroke", type="primary", use_container_width=True):
-            # Save upload to data/user/input.mp4 (the hardcoded pipeline path)
-            dest = Path("data/user/input.mp4")
-            _save_upload(uploaded, dest)
-
-            # Store result in session_state dict (mutable, thread-safe for reads)
-            st.session_state.result_holder = {"status": "running"}
-            st.session_state.analysis_state = "running"
-
-            # Launch background thread
-            t = threading.Thread(
-                target=_run_pipeline_for_upload,
-                args=(str(dest), st.session_state.result_holder),
-                daemon=True,
-            )
-            t.start()
-            st.session_state.analysis_thread = t
-            st.rerun()
-
-    if st.session_state.analysis_state == "running":
-        _show_progress_ui()
-
-        # Poll for completion
-        result = st.session_state.get("result_holder", {})
-        if result.get("status") == "done":
-            st.session_state.analysis_state = "done"
-            st.session_state.last_session_id = result.get("session_id")
-            st.rerun()
-        elif result.get("status") == "error":
-            st.session_state.analysis_state = "error"
-            st.session_state.analysis_error = result.get("error", "Unknown error")
-            st.rerun()
-        else:
-            time.sleep(3)
-            st.rerun()
-
-    if st.session_state.analysis_state == "done":
-        session_id = st.session_state.get("last_session_id")
-        _show_results(session_id)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📊 Open Full Dashboard", use_container_width=True):
-                st.session_state.analysis_state = "idle"
-                st.session_state.navigate_to = "🏠 Dashboard"
-                st.rerun()
-        with col2:
-            if st.button("🔄 Analyze Another Video", use_container_width=True):
-                st.session_state.analysis_state = "idle"
-                st.rerun()
-
-    if st.session_state.analysis_state == "error":
-        err = st.session_state.get("analysis_error", "Unknown error")
-        st.error(f"❌ Analysis failed: {err}")
-        st.markdown("**Common causes:**")
-        st.markdown(
-            "- The person is not clearly visible throughout the video\n"
-            "- The video is too short (need the full stroke motion)\n"
-            "- Poor lighting or very blurry footage\n"
-            "- Unsupported codec (use MP4 H.264)"
-        )
-        if st.button("Try Again", use_container_width=True):
-            st.session_state.analysis_state = "idle"
-            st.rerun()
+    from streamlit_app import get_latest_session
+    st.session_state["upload_last_session"] = get_latest_session()
+    st.balloons()
+    st.rerun()
 
 
-# ── sub-components ────────────────────────────────────────────────────────────
+# ── sub-components ─────────────────────────────────────────────────────────────
 
-def _show_progress_ui():
-    st.markdown("### ⏳ Analyzing your stroke…")
-
-    steps = [
-        ("🦾", "Extracting pose landmarks", "MediaPipe tracks 33 body points per frame"),
-        ("📐", "Computing biomechanical features", "Joint angles, hip rotation, spine lean"),
-        ("🔍", "Detecting contact frame", "Finding the moment of impact"),
-        ("📊", "Segmenting movement phases", "Prep → Load → Contact → Follow-through"),
-        ("🤖", "ML similarity scoring", "Comparing your pattern to Djokovic"),
-        ("📝", "Generating coaching report", "Building your personalized feedback"),
-    ]
-
-    progress_bar = st.progress(0)
-    status_box = st.empty()
-
-    # Animate through steps (approximate — real time is unknown)
-    for i, (icon, title, detail) in enumerate(steps):
-        frac = (i + 1) / len(steps)
-        progress_bar.progress(frac)
-        status_box.markdown(
-            f"**{icon} {title}**  \n<span style='color:gray;font-size:13px'>{detail}</span>",
-            unsafe_allow_html=True,
-        )
-        time.sleep(0.5)
-
-    st.info(
-        "⏱️ Full analysis takes **1–3 minutes** depending on video length. "
-        "This page auto-refreshes every few seconds."
-    )
-
-
-def _show_results(session_id: str | None):
+def _show_results(session_id):
     from streamlit_app import load_report_data
 
     st.markdown("## ✅ Analysis Complete!")
@@ -264,7 +249,7 @@ def _show_results(session_id: str | None):
     col1, col2, col3 = st.columns(3)
     with col1:
         tech = data.get("technique_score", 0)
-        st.metric("Technique Score", f"{tech:.1f}/100", "vs Djokovic reference")
+        st.metric("Technique Score", f"{tech:.1f}/100", "vs reference")
     with col2:
         ready = data.get("readiness_score", 0)
         level = data.get("readiness_level", "—")
@@ -279,23 +264,17 @@ def _show_results(session_id: str | None):
     # ── coach insight ─────────────────────────────────────────────────────────
     st.markdown("### 💬 Coach's Top Feedback")
     raw = data.get("raw_content", "")
-    # Pull the "Today's Focus" section from the report markdown
-    import re
-    focus_match = re.search(
-        r"## 🎓 Today's Focus\n\n(.*?)\n\n---",
-        raw,
-        re.DOTALL,
-    )
+    focus_match = re.search(r"Today's Focus.*?\n+(.*?)\n\n(?:---|##)", raw, re.DOTALL)
     if focus_match:
         st.info(focus_match.group(1).strip())
     else:
-        st.info("See the full report for detailed coaching feedback.")
+        st.info("See the full report below for detailed coaching feedback.")
 
     # ── download report ───────────────────────────────────────────────────────
     report_path = Path("outputs") / session_id / "report.md"
     if report_path.exists():
         st.markdown("### 📄 Full Coaching Report")
-        with open(report_path, "r") as f:
+        with open(report_path, "r", encoding="utf-8") as f:
             report_md = f.read()
         st.download_button(
             "⬇️ Download Full Report (.md)",
@@ -309,47 +288,26 @@ def _show_results(session_id: str | None):
 
     # ── reliability note ──────────────────────────────────────────────────────
     conf = data.get("readiness_confidence", 0)
-    if conf < 60:
+    if conf and conf < 60:
         st.warning(
             f"⚠️ Measurement confidence is {conf}% — some metrics had low reliability. "
-            "This usually means the camera angle wasn't fully side-on, or parts of the body "
-            "were occluded. Film from the side with your full body in frame for more accurate scores."
+            "This usually means the camera angle wasn't fully side-on, or parts of the "
+            "body were occluded. Film from the side with your full body in frame for "
+            "more accurate scores."
         )
 
 
 def _show_sample_result():
     """Show a teaser/example so first-time users know what to expect."""
-    st.markdown("---")
     st.markdown("### 📋 What you'll get")
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(
-            """
-<div style='background:var(--color-background-secondary);padding:16px;border-radius:8px;text-align:center'>
-<div style='font-size:28px;font-weight:500'>62.4</div>
-<div style='font-size:12px;color:var(--color-text-secondary)'>Technique score /100</div>
-</div>""",
-            unsafe_allow_html=True,
-        )
+        st.metric("Technique score", "62.4 / 100")
     with col2:
-        st.markdown(
-            """
-<div style='background:var(--color-background-secondary);padding:16px;border-radius:8px;text-align:center'>
-<div style='font-size:28px;font-weight:500'>4</div>
-<div style='font-size:12px;color:var(--color-text-secondary)'>Movement phases analyzed</div>
-</div>""",
-            unsafe_allow_html=True,
-        )
+        st.metric("Movement phases", "4")
     with col3:
-        st.markdown(
-            """
-<div style='background:var(--color-background-secondary);padding:16px;border-radius:8px;text-align:center'>
-<div style='font-size:28px;font-weight:500'>6+</div>
-<div style='font-size:12px;color:var(--color-text-secondary)'>Drills & coaching cues</div>
-</div>""",
-            unsafe_allow_html=True,
-        )
+        st.metric("Drills & cues", "6+")
 
     st.markdown(
         """
@@ -360,4 +318,3 @@ def _show_sample_result():
 - "Ask Coach AI" to explain any metric
 """
     )
-

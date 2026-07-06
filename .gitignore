@@ -1,0 +1,54 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ---- Virtual environments ----
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- Coach AI: generated analysis artifacts ----
+# Every run writes a timestamped session folder of videos + CSVs here.
+outputs/
+
+# ---- Coach AI: large media assets ----
+# Input/reference clips and rendered overlays. Keep these out of git history;
+# distribute via Git LFS or a download step instead. Files stay on your disk.
+data/user/*.mp4
+data/reference/*.mp4
+*.mp4
+*.mov
+*.avi
+
+# ---- Coach AI: model weights ----
+# YOLO / ball-tracking weights. Fetch on setup rather than committing.
+models/*.pt
+*.pt
+
+# ---- Coach AI: generated RAG index artifacts ----
+# Rebuild with: python rag/index_kb.py
+rag/*.pkl
+rag/embedding_index.npz
+rag/embedding_index_info.json
+rag/embedding_meta.json
+
+# ---- Secrets ----
+.env
+.env.*
+*.key

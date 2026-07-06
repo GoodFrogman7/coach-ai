@@ -306,10 +306,10 @@ def _call_ollama(prompt: str, model: str = "llama3.2:3b") -> str:
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 800
+                    "num_predict": 500  # Reduced for faster responses
                 }
             },
-            timeout=60
+            timeout=180  # Increased timeout to 3 minutes
         )
         
         if response.status_code == 200:

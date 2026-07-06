@@ -11,3 +11,6 @@ sentence-transformers>=2.2.2
 pillow>=9.0.0
 matplotlib>=3.5.0
 seaborn>=0.12.0
+
+# Ball tracking (YOLOv8) — optional; enables the Ball & Rally analytics page
+ultralytics>=8.0.0
