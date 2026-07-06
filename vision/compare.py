@@ -63,6 +63,45 @@ def get_video_fps(video_path: str) -> float:
     return fps if fps > 0 else 30.0
 
 
+def validate_video(path: str, role: str = "video") -> Tuple[bool, str]:
+    """
+    Validate that a path points to a readable video with at least one frame.
+
+    Anticipates the common upload failure modes: missing file, wrong/empty
+    path, unsupported codec, and zero-frame/corrupt files.
+
+    Args:
+        path: Filesystem path to the video.
+        role: Human-readable role for error messages (e.g. "user video").
+
+    Returns:
+        (ok, message). When ok is False, message explains why.
+    """
+    if not path:
+        return False, f"No {role} provided."
+
+    p = Path(path)
+    if not p.exists():
+        return False, f"{role.capitalize()} not found: {path}"
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        cap.release()
+        return False, f"Could not open {role} (unsupported codec or corrupt file): {p.name}"
+
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    # Frame-count metadata is unreliable for some containers; confirm by reading one frame.
+    ok_read, _ = cap.read()
+    cap.release()
+
+    if frame_count <= 0 and not ok_read:
+        return False, f"{role.capitalize()} contains no readable frames: {p.name}"
+
+    n = frame_count if frame_count > 0 else "?"
+    return True, f"OK - {n} frames @ {fps:.0f} fps"
+
+
 def detect_impact_frame(features_df: pd.DataFrame) -> int:
     """
     Detect approximate impact frame via max combined wrist speed.
@@ -84,30 +123,39 @@ def detect_impact_frame(features_df: pd.DataFrame) -> int:
     return int(features_df.loc[max_idx, 'frame'])
 
 
-def run_pipeline(config_path: str = None):
+def run_pipeline(config_path: str = None, user_video: str = None,
+                 ref_video: str = None, stroke: str = "backhand"):
     """
     Run the full analysis pipeline with session management.
-    
+
     Args:
         config_path: Optional path to YAML configuration file.
                     If None, uses hardcoded tennis backhand defaults.
+        user_video: Path to the user's video. Falls back to USER_VIDEO.
+        ref_video: Path to the reference video. Falls back to REF_VIDEO.
+        stroke: Stroke type being analyzed (backhand, forehand, serve,
+                volley, overhead). Recorded in the report metadata.
     """
     # Load optional configuration (purely additive, maintains backward compatibility)
     config = load_config(config_path)
-    
+
+    # Resolve inputs; fall back to the built-in defaults for backward compatibility.
+    user_video = user_video or USER_VIDEO
+    ref_video = ref_video or REF_VIDEO
+
     print("=" * 60)
-    print("Coach AI - Two-Handed Backhand Analysis")
+    print("Coach AI - Sports Technique Analysis")
     print("=" * 60)
-    
-    # Check if input videos exist
-    if not Path(USER_VIDEO).exists():
-        print(f"\n[ERROR] User video not found at {USER_VIDEO}")
-        print("   Please place your video at: data/user/input.mp4")
+
+    # Validate inputs (existence + readable video with frames)
+    ok, msg = validate_video(user_video, role="user video")
+    if not ok:
+        print(f"\n[ERROR] {msg}")
         return False
-    
-    if not Path(REF_VIDEO).exists():
-        print(f"\n[ERROR] Reference video not found at {REF_VIDEO}")
-        print("   Please place reference video at: data/reference/djokovic_backhand.mp4")
+
+    ok, msg = validate_video(ref_video, role="reference video")
+    if not ok:
+        print(f"\n[ERROR] {msg}")
         return False
     
     # Initialize session management with fallback
@@ -139,27 +187,28 @@ def run_pipeline(config_path: str = None):
         output_paths = get_session_paths(session_id=None)
     
     # Get video FPS
-    user_fps = get_video_fps(USER_VIDEO)
-    ref_fps = get_video_fps(REF_VIDEO)
-    
-    print(f"\n[VIDEO] User video: {USER_VIDEO} ({user_fps:.1f} fps)")
-    print(f"[VIDEO] Reference video: {REF_VIDEO} ({ref_fps:.1f} fps)")
-    
+    user_fps = get_video_fps(user_video)
+    ref_fps = get_video_fps(ref_video)
+
+    print(f"\n[VIDEO] User video: {user_video} ({user_fps:.1f} fps)")
+    print(f"[VIDEO] Reference video: {ref_video} ({ref_fps:.1f} fps)")
+    print(f"[STROKE] {stroke}")
+
     # Step 1: Extract pose landmarks
     print("\n[1/5] Extracting pose landmarks...")
     print("  -> Processing user video...")
-    user_landmarks = extract_pose_landmarks(USER_VIDEO)
-    
+    user_landmarks = extract_pose_landmarks(user_video)
+
     print("  -> Processing reference video...")
-    ref_landmarks = extract_pose_landmarks(REF_VIDEO)
-    
+    ref_landmarks = extract_pose_landmarks(ref_video)
+
     # Step 2: Create overlay videos
     print("\n[2/5] Creating overlay videos...")
     print("  -> User overlay...")
-    create_overlay_video(USER_VIDEO, str(output_paths['overlay_user']))
-    
+    create_overlay_video(user_video, str(output_paths['overlay_user']))
+
     print("  -> Reference overlay...")
-    create_overlay_video(REF_VIDEO, str(output_paths['overlay_ref']))
+    create_overlay_video(ref_video, str(output_paths['overlay_ref']))
     
     # Note: Broadcast overlay with ball tracking will be created in Step 4.9 after ball detection
     
@@ -459,7 +508,7 @@ def run_pipeline(config_path: str = None):
     if is_ball_tracking_available():
         try:
             print("\n[4.9/5] Running ball tracking & rally analysis...")
-            ball_trajectory = run_ball_detection(USER_VIDEO, fps=user_fps)
+            ball_trajectory = run_ball_detection(user_video, fps=user_fps)
             
             if ball_trajectory:
                 # Compute ball statistics
@@ -493,7 +542,7 @@ def run_pipeline(config_path: str = None):
                         heatmap_dir.mkdir(exist_ok=True)
                         
                         # Get video dimensions
-                        cap = cv2.VideoCapture(USER_VIDEO)
+                        cap = cv2.VideoCapture(user_video)
                         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         cap.release()
@@ -540,7 +589,7 @@ def run_pipeline(config_path: str = None):
                         # Create broadcast overlay
                         broadcast_output = Path("outputs") / session_id / "overlay_broadcast.mp4"
                         create_broadcast_overlay(
-                            USER_VIDEO,
+                            user_video,
                             ball_trajectory,
                             str(broadcast_output),
                             rally_stats=rally_stats_obj,
@@ -570,6 +619,8 @@ def run_pipeline(config_path: str = None):
         user_phases, ref_phases,
         user_phase_metrics, ref_phase_metrics,
         session_id=session_id,  # Include session metadata if available
+        ref_video=ref_video,
+        stroke_type=stroke,
         user_consistency=user_consistency,
         ref_consistency=ref_consistency,
         phase_weighted_score=phase_weighted_score,
@@ -658,8 +709,32 @@ if __name__ == "__main__":
         default=None,
         help='Path to YAML configuration file (optional, defaults to tennis backhand)'
     )
-    
+    parser.add_argument(
+        '--user',
+        type=str,
+        default=None,
+        help='Path to the user video (default: data/user/input.mp4)'
+    )
+    parser.add_argument(
+        '--reference',
+        type=str,
+        default=None,
+        help='Path to the reference video (default: data/reference/djokovic_backhand.mp4)'
+    )
+    parser.add_argument(
+        '--stroke',
+        type=str,
+        default='backhand',
+        choices=['backhand', 'forehand', 'serve', 'volley', 'overhead'],
+        help='Stroke type being analyzed (default: backhand)'
+    )
+
     args = parser.parse_args()
-    
-    success = run_pipeline(config_path=args.config)
+
+    success = run_pipeline(
+        config_path=args.config,
+        user_video=args.user,
+        ref_video=args.reference,
+        stroke=args.stroke,
+    )
     sys.exit(0 if success else 1)

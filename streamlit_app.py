@@ -33,6 +33,17 @@ except ImportError:
     generate_progress_narrative = None
     compute_drill_confidence_scores = None
 
+# Import the analysis pipeline (write path) for the "New Analysis" upload page.
+try:
+    from vision.compare import run_pipeline, validate_video
+except ImportError:
+    run_pipeline = None
+    validate_video = None
+
+STROKE_OPTIONS = ["backhand", "forehand", "serve", "volley", "overhead"]
+DEFAULT_REFERENCE = "data/reference/djokovic_backhand.mp4"
+UPLOAD_DIR = Path("data/user/uploads")
+
 
 # ============================================================================
 # Data Loading Helpers
@@ -79,12 +90,17 @@ def load_report_data(session_id: str, base_dir: str = "outputs") -> dict:
         
         data = {'session_id': session_id, 'raw_content': content}
         
-        # Extract technique score
-        match = re.search(r'Overall Similarity:\s*\*\*(\d+\.?\d*)%\*\*', content)
+        # Extract technique score (updated format)
+        match = re.search(r'Overall Technique Score:\s*(\d+\.?\d*)/100', content)
         if match:
             data['technique_score'] = float(match.group(1))
+        else:
+            # Fallback to old format
+            match = re.search(r'Overall Similarity:\s*\*\*(\d+\.?\d*)%\*\*', content)
+            if match:
+                data['technique_score'] = float(match.group(1))
         
-        # Extract readiness score
+        # Extract readiness score (use technique score if readiness not found)
         match = re.search(r'## 🎯 Match Readiness Assessment.*?Score\*\*:\s*(\d+\.?\d*)/100', content, re.DOTALL)
         if match:
             data['readiness_score'] = float(match.group(1))
@@ -98,21 +114,72 @@ def load_report_data(session_id: str, base_dir: str = "outputs") -> dict:
             conf_match = re.search(r'Confidence:\s*(\d+)%', content)
             if conf_match:
                 data['readiness_confidence'] = int(conf_match.group(1))
+        else:
+            # Use technique score as fallback readiness score
+            if 'technique_score' in data:
+                data['readiness_score'] = data['technique_score']
+                # Determine level based on score
+                score = data['technique_score']
+                if score >= 80:
+                    data['readiness_level'] = 'Excellent'
+                elif score >= 65:
+                    data['readiness_level'] = 'Good'
+                elif score >= 45:
+                    data['readiness_level'] = 'Fair'
+                else:
+                    data['readiness_level'] = 'Poor'
+                data['readiness_confidence'] = int(min(score, 80))  # Confidence based on score
         
         # Extract training load recommendation
         match = re.search(r'Recommended Session:\s*(\w+)', content)
         if match:
             data['session_type'] = match.group(1)
+        else:
+            # Infer from technique score
+            if 'technique_score' in data:
+                score = data['technique_score']
+                if score < 50:
+                    data['session_type'] = 'Technique'
+                elif score < 70:
+                    data['session_type'] = 'Refinement'
+                else:
+                    data['session_type'] = 'Maintenance'
         
         match = re.search(r'Intensity\*\*:.*?(Low|Moderate|High)', content)
         if match:
             data['intensity'] = match.group(1)
+        else:
+            # Infer intensity
+            if 'technique_score' in data:
+                score = data['technique_score']
+                if score < 60:
+                    data['intensity'] = 'Moderate'
+                else:
+                    data['intensity'] = 'Low'
         
-        # Extract focus areas
-        focus_section = re.search(r'### 🎯 Focus Areas.*?\n(.*?)\n\n', content, re.DOTALL)
+        # Extract focus areas from "Today's Focus" section
+        focus_section = re.search(r'## Today\'s Focus.*?Your Top.*?:\s*\n(.*?)\n##', content, re.DOTALL)
         if focus_section:
             focus_text = focus_section.group(1)
-            data['focus_areas'] = [line.strip('- ').strip() for line in focus_text.split('\n') if line.strip().startswith('-')]
+            # Extract numbered priorities
+            priorities = re.findall(r'\d+\.\s*\*\*\[?([^\]]*?)\]?\*\*\s*(.*?)(?=\n\d+\.|\n\n|\*Primary)', focus_text, re.DOTALL)
+            data['focus_areas'] = []
+            for phase, description in priorities:
+                clean_desc = description.strip().split('\n')[0]  # Get first line only
+                data['focus_areas'].append(f"{phase}: {clean_desc}")
+        
+        # Extract suggested drills
+        drill_section = re.search(r'## Suggested Drills.*?\n(.*?)\n---', content, re.DOTALL)
+        if drill_section:
+            drill_text = drill_section.group(1)
+            # Extract drill titles and descriptions
+            drills = re.findall(r'### Drill \d+\s*\n\s*\*\*(.*?)\*\*:\s*(.*?)(?=\n\n|### Drill|\Z)', drill_text, re.DOTALL)
+            data['drills'] = []
+            for title, description in drills:
+                data['drills'].append({
+                    'title': title.strip(),
+                    'description': description.strip()
+                })
         
         # Extract avoid areas
         avoid_section = re.search(r'### ⚠️ Areas to Avoid.*?\n(.*?)\n\n', content, re.DOTALL)
@@ -718,6 +785,18 @@ def render_training_drills(session_data):
             st.warning(f"⚠️ {area}")
         st.markdown("---")
     
+    # Display suggested drills if available
+    drills = session_data.get('drills', [])
+    if drills:
+        st.subheader("🎾 Suggested Drills")
+        st.markdown("**Specific drills for your current needs:**")
+        
+        for i, drill in enumerate(drills, 1):
+            with st.expander(f"**Drill {i}: {drill['title']}**", expanded=True):
+                st.markdown(drill['description'])
+        
+        st.markdown("---")
+    
     # Drill categories
     st.subheader("🎾 Drill Categories")
     
@@ -779,25 +858,25 @@ def get_cached_answer(
     mode: str,
     depth: str,
     strict_grounding: bool,
-    base_dir: str = "outputs",
-    session_memory=None
+    base_dir: str = "outputs"
 ):
     """
     Cached wrapper for retrieval + LLM answer generation.
     
     Caches by: (question, session_id, mode, depth, strict_grounding)
     Returns complete answer object to avoid duplicate Ollama calls.
-    Now includes session memory for tracking queries and detecting recurring issues.
+    Session memory handled outside cache to avoid hashing issues.
     """
     from rag import retrieve_context, ask_coach, extract_session_summary
     import os
     
-    # Retrieve relevant context (with embeddings if available, and session memory)
+    # Retrieve relevant context (with embeddings if available)
+    # Note: session_memory handled outside cache in render_ask_coach
     retrieval_result = retrieve_context(
         question, 
         top_k=5, 
         use_embeddings=True,
-        session_memory=session_memory
+        session_memory=None  # Don't use session_memory in cached function
     )
     retrieved_chunks = retrieval_result['results']
     confidence = retrieval_result['confidence']
@@ -842,6 +921,212 @@ def get_cached_answer(
         'session_summary': session_summary,
         'cached': False  # Will be set to True on subsequent calls
     }
+
+
+def render_ball_rally_analytics(session_id):
+    """Render Ball & Rally Analytics screen with tracking data."""
+    st.title("📊 Ball & Rally Analytics")
+    
+    st.markdown("""
+    Advanced ball tracking and rally analysis powered by YOLOv8.
+    This feature requires a trained YOLO model (`models/best.pt`).
+    """)
+    
+    # Check if session has ball tracking data
+    session_dir = Path("outputs") / session_id
+    heatmap_dir = session_dir / "heatmaps"
+    broadcast_video = session_dir / "overlay_broadcast.mp4"
+    
+    # Load report data to extract ball stats
+    report_path = session_dir / "report.md"
+    
+    if not report_path.exists():
+        st.error("❌ Session report not found")
+        return
+    
+    with open(report_path, 'r', encoding='utf-8') as f:
+        report_content = f.read()
+    
+    # Check if ball tracking data exists
+    has_ball_tracking = "Ball & Rally Intelligence" in report_content
+    
+    if not has_ball_tracking:
+        st.info("""
+        ℹ️ **Ball tracking not available for this session**
+        
+        Ball tracking requires:
+        - A trained YOLO model at `models/best.pt`
+        - See `models/README.md` for setup instructions
+        
+        This session only contains pose-based analysis.
+        Run analysis again after setting up YOLO to see ball tracking data.
+        """)
+        return
+    
+    st.success("✅ Ball tracking data available for this session")
+    
+    # Extract ball statistics from report
+    ball_detections = re.search(r'\*\*Total Ball Detections\*\*:\s*(\d+)', report_content)
+    avg_speed = re.search(r'\*\*Average Ball Speed\*\*:\s*([\d.]+)\s*px/frame', report_content)
+    max_speed = re.search(r'\*\*Maximum Ball Speed\*\*:\s*([\d.]+)\s*px/frame', report_content)
+    total_rallies = re.search(r'\*\*Total Rallies Detected\*\*:\s*(\d+)', report_content)
+    avg_rally_length = re.search(r'\*\*Average Rally Length\*\*:\s*([\d.]+)\s*shots', report_content)
+    
+    # Display key metrics
+    st.markdown("### 📈 Key Metrics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if ball_detections:
+            st.metric("Total Detections", ball_detections.group(1))
+        else:
+            st.metric("Total Detections", "N/A")
+    
+    with col2:
+        if avg_speed:
+            st.metric("Avg Speed", f"{float(avg_speed.group(1)):.1f} px/f")
+        else:
+            st.metric("Avg Speed", "N/A")
+    
+    with col3:
+        if max_speed:
+            st.metric("Max Speed", f"{float(max_speed.group(1)):.1f} px/f")
+        else:
+            st.metric("Max Speed", "N/A")
+    
+    with col4:
+        if total_rallies:
+            st.metric("Total Rallies", total_rallies.group(1))
+        else:
+            st.metric("Total Rallies", "N/A")
+    
+    st.markdown("---")
+    
+    # Speed Distribution
+    st.markdown("### ⚡ Speed Distribution")
+    
+    speed_dist = {}
+    for category in ['SLOW', 'MEDIUM', 'FAST', 'BULLET']:
+        match = re.search(rf'\*\*.*?{category}\*\*:\s*([\d.]+)%', report_content)
+        if match:
+            speed_dist[category] = float(match.group(1))
+    
+    if speed_dist:
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Create bar chart
+            import plotly.graph_objects as go
+            
+            colors = {'SLOW': '#00FF64', 'MEDIUM': '#00FFFF', 'FAST': '#00A5FF', 'BULLET': '#FF0000'}
+            
+            fig = go.Figure(data=[
+                go.Bar(
+                    x=list(speed_dist.keys()),
+                    y=list(speed_dist.values()),
+                    marker_color=[colors.get(k, '#888888') for k in speed_dist.keys()],
+                    text=[f"{v:.1f}%" for v in speed_dist.values()],
+                    textposition='auto',
+                )
+            ])
+            
+            fig.update_layout(
+                title="Ball Speed Distribution",
+                xaxis_title="Speed Category",
+                yaxis_title="Percentage (%)",
+                height=400,
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            st.markdown("**Interpretation:**")
+            for category, pct in speed_dist.items():
+                emoji = {'SLOW': '🟢', 'MEDIUM': '🟡', 'FAST': '🟠', 'BULLET': '🔴'}
+                st.markdown(f"{emoji.get(category, '⚪')} **{category}**: {pct:.1f}%")
+            
+            # Add interpretation
+            st.markdown("")
+            if speed_dist.get('SLOW', 0) > 50:
+                st.info("🎯 Mostly slow shots - good for control, but consider adding pace variety")
+            elif speed_dist.get('BULLET', 0) > 30:
+                st.warning("⚡ High percentage of fast shots - ensure consistency isn't sacrificed")
+            else:
+                st.success("✅ Good speed distribution - shows tactical variety")
+    
+    st.markdown("---")
+    
+    # Rally Analysis
+    if total_rallies and avg_rally_length:
+        st.markdown("### 🏓 Rally Analysis")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Average Rally Length", f"{float(avg_rally_length.group(1)):.1f} shots")
+            
+            longest_rally = re.search(r'\*\*Longest Rally\*\*:\s*(\d+)\s*shots', report_content)
+            if longest_rally:
+                st.metric("Longest Rally", f"{longest_rally.group(1)} shots")
+        
+        with col2:
+            shortest_rally = re.search(r'\*\*Shortest Rally\*\*:\s*(\d+)\s*shots', report_content)
+            if shortest_rally:
+                st.metric("Shortest Rally", f"{shortest_rally.group(1)} shots")
+            
+            avg_duration = re.search(r'\*\*Average Rally Duration\*\*:\s*([\d.]+)\s*seconds', report_content)
+            if avg_duration:
+                st.metric("Avg Duration", f"{float(avg_duration.group(1)):.1f}s")
+        
+        st.markdown("---")
+    
+    # Heatmaps
+    st.markdown("### 🗺️ Visual Analytics")
+    
+    tabs = st.tabs(["Court Zones", "Speed Distribution", "Broadcast Video"])
+    
+    with tabs[0]:
+        if (heatmap_dir / "court_zones.png").exists():
+            st.markdown("**Shot Placement Heatmap**")
+            st.image(str(heatmap_dir / "court_zones.png"), use_container_width=True)
+            st.caption("Heatmap showing where your shots landed on the court")
+        else:
+            st.info("Court zones heatmap not available")
+    
+    with tabs[1]:
+        if (heatmap_dir / "speed_distribution.png").exists():
+            st.markdown("**Speed Distribution Chart**")
+            st.image(str(heatmap_dir / "speed_distribution.png"), use_container_width=True)
+            st.caption("Detailed breakdown of ball speed categories")
+        else:
+            st.info("Speed distribution chart not available")
+    
+    with tabs[2]:
+        if broadcast_video.exists():
+            st.markdown("**Broadcast-Style Overlay**")
+            st.video(str(broadcast_video))
+            st.caption("Video with real-time ball tracking, speed indicators, and analytics overlay")
+        else:
+            st.info("Broadcast overlay video not available")
+    
+    st.markdown("---")
+    
+    # Technical details
+    with st.expander("🔧 Technical Details"):
+        st.markdown("""
+        **Ball Tracking Technology:**
+        - **Model**: YOLOv8 (You Only Look Once)
+        - **Detection**: Real-time ball position tracking
+        - **Speed Calculation**: Frame-to-frame displacement
+        - **Rally Segmentation**: Temporal gap analysis
+        
+        **Metrics Explained:**
+        - **px/frame**: Pixels per frame - measures ball movement between frames
+        - **Court Zones**: 3x3 grid (left/center/right × net/mid/baseline)
+        - **Speed Categories**: Slow (<8), Medium (8-20), Fast (20-35), Bullet (>35 px/f)
+        """)
 
 
 def render_ask_coach(base_dir="outputs", selected_session=None):
@@ -920,7 +1205,7 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                         st.rerun()
                     
                     # Show preview in expander
-                    with st.expander(f"Preview", expanded=False, key=f"preview_{i}"):
+                    with st.expander(f"Preview", expanded=False):
                         st.caption(f"**Asked:** {qa['timestamp'][:19]}")
                         st.caption(f"**Confidence:** {qa['retrieval_confidence']}")
                         st.caption(f"**Mode:** {qa['mode']}")
@@ -1013,13 +1298,22 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                         mode=mode,
                         depth=depth,
                         strict_grounding=strict_grounding,
-                        base_dir=base_dir,
-                        session_memory=session_memory
+                        base_dir=base_dir
                     )
                     
                     # Mark as cached if this is not first call
                     # (Streamlit cache will make subsequent calls instant)
                     result['cached'] = True
+                    
+                    # Update session memory AFTER getting cached result
+                    if session_memory and result.get('retrieval_stats'):
+                        session_memory.add_query(
+                            query=current_question,
+                            intent=result['retrieval_stats'].get('intent', 'UNKNOWN'),
+                            kb_sources=[c.get('filename', '') for c in result.get('retrieved_chunks', []) if isinstance(c, dict)],
+                            confidence=result.get('confidence', 'Low'),
+                            top_score=result['retrieval_stats'].get('top1_score', 0.0)
+                        )
                     
                     # Log Q&A interaction
                     if selected_session:
@@ -1264,6 +1558,112 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
 # Main App
 # ============================================================================
 
+def render_new_analysis():
+    """Upload a video, pick a stroke and reference, and run the analysis pipeline."""
+    st.title("🎥 New Analysis")
+    st.markdown(
+        "Upload a stroke video and Coach AI analyzes your technique against a "
+        "professional reference. Analysis runs locally and takes ~1-3 minutes."
+    )
+
+    if run_pipeline is None or validate_video is None:
+        st.error(
+            "The analysis pipeline could not be imported. Ensure dependencies are "
+            "installed (`pip install -r requirements.txt`) and you're running from "
+            "the project root."
+        )
+        return
+
+    # 1. User video
+    st.subheader("1. Your video")
+    st.caption("Side-on view (perpendicular to the baseline), full body in frame, 720p+ works best.")
+    user_file = st.file_uploader(
+        "Upload your stroke video",
+        type=["mp4", "mov", "avi", "m4v"],
+        key="user_video_upload",
+    )
+
+    # 2. Stroke type
+    st.subheader("2. Stroke type")
+    stroke = st.selectbox("Which stroke is this?", STROKE_OPTIONS, index=0)
+
+    # 3. Reference
+    st.subheader("3. Reference")
+    ref_choice = st.radio(
+        "Compare against",
+        ["Built-in professional reference", "Upload my own reference"],
+        index=0,
+    )
+    ref_file = None
+    if ref_choice == "Upload my own reference":
+        ref_file = st.file_uploader(
+            "Upload a reference video",
+            type=["mp4", "mov", "avi", "m4v"],
+            key="ref_video_upload",
+        )
+    elif Path(DEFAULT_REFERENCE).exists():
+        st.caption(f"Using built-in reference: {Path(DEFAULT_REFERENCE).name}")
+    else:
+        st.warning(
+            f"Built-in reference not found at `{DEFAULT_REFERENCE}`. "
+            "Upload your own reference video instead."
+        )
+
+    st.markdown("---")
+    if not st.button("▶️ Run Analysis", type="primary", use_container_width=True):
+        return
+
+    # Validate presence
+    if user_file is None:
+        st.error("Please upload your video first.")
+        return
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _save(uploaded, prefix):
+        suffix = Path(uploaded.name).suffix or ".mp4"
+        dest = UPLOAD_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}"
+        with open(dest, "wb") as f:
+            f.write(uploaded.getbuffer())
+        return str(dest)
+
+    user_path = _save(user_file, "user")
+
+    if ref_choice == "Upload my own reference":
+        if ref_file is None:
+            st.error("Please upload a reference video, or switch to the built-in reference.")
+            return
+        ref_path = _save(ref_file, "ref")
+    else:
+        ref_path = DEFAULT_REFERENCE
+
+    # Validate both videos are readable before the (slow) pipeline runs
+    ok_u, msg_u = validate_video(user_path, role="user video")
+    if not ok_u:
+        st.error(f"Your video could not be read: {msg_u}")
+        return
+    ok_r, msg_r = validate_video(ref_path, role="reference video")
+    if not ok_r:
+        st.error(f"Reference video could not be read: {msg_r}")
+        return
+
+    with st.spinner("Analyzing your stroke — pose extraction + reference comparison (~1-3 min)..."):
+        try:
+            success = run_pipeline(user_video=user_path, ref_video=ref_path, stroke=stroke)
+        except Exception as e:
+            st.error(f"Analysis failed: {e}")
+            return
+
+    if not success:
+        st.error("Analysis did not complete. Check the terminal running Streamlit for details.")
+        return
+
+    new_session = get_latest_session()
+    st.success(f"✅ Analysis complete! New session: **{new_session}**")
+    st.balloons()
+    st.info("Open **🏠 Dashboard** in the sidebar to view your report — it's now the most recent session.")
+
+
 def main():
     """Main Streamlit application."""
     
@@ -1295,17 +1695,23 @@ def main():
     
     page = st.sidebar.radio(
         "Navigation",
-        ["🏠 Dashboard", "📈 Progress & Trends", "🏆 Achievements", 
-         "🎯 Reference Comparison", "💪 Training & Drills", "🤖 Ask Coach"]
+        ["🎥 New Analysis", "🏠 Dashboard", "📈 Progress & Trends", "🏆 Achievements",
+         "🎯 Reference Comparison", "💪 Training & Drills", "📊 Ball & Rally", "🤖 Ask Coach"]
     )
-    
+
     st.sidebar.markdown("---")
-    
+
+    # The New Analysis page must work even with zero existing sessions,
+    # so handle it before the "load a session" guard below.
+    if page == "🎥 New Analysis":
+        render_new_analysis()
+        return
+
     # Load data
     latest_session = get_latest_session()
-    
+
     if not latest_session:
-        st.warning("⚠️ No session data found. Run analysis first: `python vision/compare.py`")
+        st.warning("⚠️ No session data found. Go to **🎥 New Analysis** in the sidebar to upload your first video.")
         st.sidebar.warning("No data available")
         return
     
@@ -1313,11 +1719,30 @@ def main():
     recent_sessions = get_recent_sessions(n=10)
     
     if recent_sessions:
+        # Create display names for sessions
+        def format_session_name(session_id):
+            # Parse date from session ID (e.g., "2025-12-25_13-12-31")
+            try:
+                parts = session_id.split('_')
+                date_str = parts[0]  # "2025-12-25"
+                time_str = parts[1][:5] if len(parts) > 1 else ""  # "13-12" -> "13:12"
+                time_str = time_str.replace('-', ':')
+                
+                # Load session data to get score
+                session_info = load_report_data(session_id)
+                if session_info and 'technique_score' in session_info:
+                    score = session_info['technique_score']
+                    return f"{date_str} {time_str} - Score: {score:.1f}/100"
+                else:
+                    return f"{date_str} {time_str}"
+            except:
+                return session_id
+        
         selected_session = st.sidebar.selectbox(
             "Select Session",
             options=recent_sessions,
             index=0,
-            format_func=lambda x: x.split('_')[0]  # Show date only
+            format_func=format_session_name
         )
     else:
         selected_session = latest_session
@@ -1361,6 +1786,8 @@ def main():
         render_reference_comparison(session_data)
     elif page == "💪 Training & Drills":
         render_training_drills(session_data)
+    elif page == "📊 Ball & Rally":
+        render_ball_rally_analytics(selected_session)
     elif page == "🤖 Ask Coach":
         render_ask_coach("outputs", selected_session)
 

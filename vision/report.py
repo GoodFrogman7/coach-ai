@@ -34,6 +34,8 @@ def generate_report(
     ref_phase_metrics: dict = None,
     session_id: str = None,
     user_id: str = "default_user",
+    ref_video: str = None,
+    stroke_type: str = "backhand",
     user_consistency: dict = None,
     ref_consistency: dict = None,
     phase_weighted_score: float = None,
@@ -90,11 +92,12 @@ def generate_report(
     if session_id:
         # Add YAML-style metadata header
         generated_at = datetime.now().isoformat()
-        ref_video_name = Path(REF_VIDEO).name
-        
+        ref_video_name = Path(ref_video).name if ref_video else Path(REF_VIDEO).name
+
         report += f"""---
 session_id: {session_id}
 user_id: {user_id}
+stroke: {stroke_type}
 reference_video: {ref_video_name}
 generated_at: {generated_at}
 ---
