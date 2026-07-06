@@ -368,7 +368,8 @@ def compute_phase_consistency(normalized_phases: dict, metrics: list = None) -> 
     return consistency_scores
 
 
-def compute_phase_weighted_score(phase_scores: dict, config: dict = None) -> float:
+def compute_phase_weighted_score(phase_scores: dict, config: dict = None,
+                                 phase_weights: dict = None) -> float:
     """
     Compute phase-weighted overall score where contact and follow-through 
     have higher impact on final technique quality.
@@ -382,12 +383,14 @@ def compute_phase_weighted_score(phase_scores: dict, config: dict = None) -> flo
     Args:
         phase_scores: Dictionary {phase_name: similarity_score}
         config: Optional configuration dictionary
-        
+        phase_weights: Explicit phase weights (e.g. stroke-specific). When
+            provided, these take precedence over config-derived weights.
+
     Returns:
         Weighted average score (0-100)
     """
-    # Use config weights if provided, otherwise use defaults
-    weights = get_phase_weights(config)
+    # Explicit weights (e.g. stroke-aware) win; otherwise fall back to config.
+    weights = phase_weights if phase_weights else get_phase_weights(config)
     
     weighted_sum = 0.0
     total_weight = 0.0
