@@ -16,6 +16,12 @@ from datetime import datetime, timedelta
 import re
 import sys
 
+try:
+    from upload_page import render_upload_page
+    UPLOAD_AVAILABLE = True
+except ImportError:
+    UPLOAD_AVAILABLE = False
+
 # Add vision directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -33,16 +39,8 @@ except ImportError:
     generate_progress_narrative = None
     compute_drill_confidence_scores = None
 
-# Import the analysis pipeline (write path) for the "New Analysis" upload page.
-try:
-    from vision.compare import run_pipeline, validate_video
-except ImportError:
-    run_pipeline = None
-    validate_video = None
-
-STROKE_OPTIONS = ["backhand", "forehand", "serve", "volley", "overhead"]
-DEFAULT_REFERENCE = "data/reference/djokovic_backhand.mp4"
-UPLOAD_DIR = Path("data/user/uploads")
+# The upload / "New Analysis" page (write path) lives in upload_page.py
+# (render_upload_page). streamlit_app.py itself only reads existing sessions.
 
 
 # ============================================================================
@@ -1558,112 +1556,6 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
 # Main App
 # ============================================================================
 
-def render_new_analysis():
-    """Upload a video, pick a stroke and reference, and run the analysis pipeline."""
-    st.title("🎥 New Analysis")
-    st.markdown(
-        "Upload a stroke video and Coach AI analyzes your technique against a "
-        "professional reference. Analysis runs locally and takes ~1-3 minutes."
-    )
-
-    if run_pipeline is None or validate_video is None:
-        st.error(
-            "The analysis pipeline could not be imported. Ensure dependencies are "
-            "installed (`pip install -r requirements.txt`) and you're running from "
-            "the project root."
-        )
-        return
-
-    # 1. User video
-    st.subheader("1. Your video")
-    st.caption("Side-on view (perpendicular to the baseline), full body in frame, 720p+ works best.")
-    user_file = st.file_uploader(
-        "Upload your stroke video",
-        type=["mp4", "mov", "avi", "m4v"],
-        key="user_video_upload",
-    )
-
-    # 2. Stroke type
-    st.subheader("2. Stroke type")
-    stroke = st.selectbox("Which stroke is this?", STROKE_OPTIONS, index=0)
-
-    # 3. Reference
-    st.subheader("3. Reference")
-    ref_choice = st.radio(
-        "Compare against",
-        ["Built-in professional reference", "Upload my own reference"],
-        index=0,
-    )
-    ref_file = None
-    if ref_choice == "Upload my own reference":
-        ref_file = st.file_uploader(
-            "Upload a reference video",
-            type=["mp4", "mov", "avi", "m4v"],
-            key="ref_video_upload",
-        )
-    elif Path(DEFAULT_REFERENCE).exists():
-        st.caption(f"Using built-in reference: {Path(DEFAULT_REFERENCE).name}")
-    else:
-        st.warning(
-            f"Built-in reference not found at `{DEFAULT_REFERENCE}`. "
-            "Upload your own reference video instead."
-        )
-
-    st.markdown("---")
-    if not st.button("▶️ Run Analysis", type="primary", use_container_width=True):
-        return
-
-    # Validate presence
-    if user_file is None:
-        st.error("Please upload your video first.")
-        return
-
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-    def _save(uploaded, prefix):
-        suffix = Path(uploaded.name).suffix or ".mp4"
-        dest = UPLOAD_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{suffix}"
-        with open(dest, "wb") as f:
-            f.write(uploaded.getbuffer())
-        return str(dest)
-
-    user_path = _save(user_file, "user")
-
-    if ref_choice == "Upload my own reference":
-        if ref_file is None:
-            st.error("Please upload a reference video, or switch to the built-in reference.")
-            return
-        ref_path = _save(ref_file, "ref")
-    else:
-        ref_path = DEFAULT_REFERENCE
-
-    # Validate both videos are readable before the (slow) pipeline runs
-    ok_u, msg_u = validate_video(user_path, role="user video")
-    if not ok_u:
-        st.error(f"Your video could not be read: {msg_u}")
-        return
-    ok_r, msg_r = validate_video(ref_path, role="reference video")
-    if not ok_r:
-        st.error(f"Reference video could not be read: {msg_r}")
-        return
-
-    with st.spinner("Analyzing your stroke — pose extraction + reference comparison (~1-3 min)..."):
-        try:
-            success = run_pipeline(user_video=user_path, ref_video=ref_path, stroke=stroke)
-        except Exception as e:
-            st.error(f"Analysis failed: {e}")
-            return
-
-    if not success:
-        st.error("Analysis did not complete. Check the terminal running Streamlit for details.")
-        return
-
-    new_session = get_latest_session()
-    st.success(f"✅ Analysis complete! New session: **{new_session}**")
-    st.balloons()
-    st.info("Open **🏠 Dashboard** in the sidebar to view your report — it's now the most recent session.")
-
-
 def main():
     """Main Streamlit application."""
     
@@ -1693,10 +1585,18 @@ def main():
     st.sidebar.title("🎾 Coach AI")
     st.sidebar.markdown("---")
     
+    # Page list; upload page is first so it's the landing page. "navigate_to" lets
+    # the upload page jump to the dashboard after an analysis completes.
+    PAGES = [
+        "🎥 New Analysis", "🏠 Dashboard", "📈 Progress & Trends", "🏆 Achievements",
+        "🎯 Reference Comparison", "💪 Training & Drills", "📊 Ball & Rally", "🤖 Ask Coach",
+    ]
+    default_page = st.session_state.pop("navigate_to", "🎥 New Analysis")
+
     page = st.sidebar.radio(
         "Navigation",
-        ["🎥 New Analysis", "🏠 Dashboard", "📈 Progress & Trends", "🏆 Achievements",
-         "🎯 Reference Comparison", "💪 Training & Drills", "📊 Ball & Rally", "🤖 Ask Coach"]
+        PAGES,
+        index=PAGES.index(default_page) if default_page in PAGES else 0,
     )
 
     st.sidebar.markdown("---")
@@ -1704,7 +1604,13 @@ def main():
     # The New Analysis page must work even with zero existing sessions,
     # so handle it before the "load a session" guard below.
     if page == "🎥 New Analysis":
-        render_new_analysis()
+        if UPLOAD_AVAILABLE:
+            render_upload_page()
+        else:
+            st.error(
+                "Upload page could not be loaded. Ensure upload_page.py is in the "
+                "project root and dependencies are installed."
+            )
         return
 
     # Load data

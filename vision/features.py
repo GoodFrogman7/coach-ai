@@ -224,7 +224,7 @@ def segment_stroke_phases(features_df: pd.DataFrame, impact_frame: int) -> dict:
     window = 5
     df['wrist_speed_smooth'] = df['combined_wrist_speed'].rolling(window=window, center=True).mean()
     df['hip_rotation_smooth'] = df['hip_rotation'].rolling(window=window, center=True).mean()
-    df = df.fillna(method='bfill').fillna(method='ffill')
+    df = df.bfill().ffill()
     
     total_frames = len(df)
     
