@@ -261,9 +261,23 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     # Compute similarity scores for progress tracking
     overall_score = compute_similarity_score(user_metrics, ref_metrics)
     
+    # Stroke-aware phase weighting: non-backhand strokes emphasize different
+    # phases (e.g. serve/volley weight contact higher, forehand weights load
+    # higher). Backhand keeps the config-derived weights, so a backhand run --
+    # including one with a custom --config -- behaves exactly as before.
+    stroke_phase_weights = (
+        get_stroke_phase_weights(stroke)
+        if stroke and stroke.lower().strip() != 'backhand'
+        else None
+    )
+    if stroke_phase_weights:
+        print(f"  -> Stroke-aware phase weights ({stroke}): {stroke_phase_weights}")
+
     # Compute phase-weighted score (contact and follow-through weighted higher)
     phase_scores = compute_phase_similarity_scores(user_phase_metrics, ref_phase_metrics)
-    phase_weighted_score = compute_phase_weighted_score(phase_scores, config=config)
+    phase_weighted_score = compute_phase_weighted_score(
+        phase_scores, config=config, phase_weights=stroke_phase_weights
+    )
     
     print(f"  -> Overall similarity score: {overall_score}/100")
     print(f"  -> Phase-weighted score: {phase_weighted_score}/100")
@@ -307,8 +321,9 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         # Compute per-phase ML similarities using cosine similarity
         ml_similarities = compute_ml_phase_similarity(user_phase_metrics, ref_phase_metrics, config=config)
         
-        # Compute overall weighted ML similarity using config-based weights
-        phase_weights = get_phase_weights(config)
+        # Compute overall weighted ML similarity using stroke-aware weights when
+        # a non-backhand stroke is selected, otherwise config-based weights.
+        phase_weights = stroke_phase_weights if stroke_phase_weights else get_phase_weights(config)
         ml_overall = compute_ml_overall_similarity(ml_similarities, phase_weights=phase_weights)
         
         print(f"  -> ML overall similarity: {ml_overall}/100")
