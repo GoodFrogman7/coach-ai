@@ -34,9 +34,15 @@ coach_ai/
 │   └── reference/         # Reference videos (djokovic_backhand.mp4)
 ├── kb/                    # Knowledge base markdown files
 ├── rag/                   # RAG system (indexing, retrieval, LLM)
-├── outputs/               # Generated outputs
-├── streamlit_app.py       # Product-grade UI dashboard
-├── requirements.txt
+├── outputs/               # Generated outputs (one folder per session)
+├── users/                 # Player profiles: session names per player (JSON)
+├── ui/
+│   ├── data.py            # Read-only report parsing helpers
+│   ├── users.py           # Player profiles and session naming
+│   └── pages/             # One module per dashboard page (upload, dashboard, ...)
+├── streamlit_app.py       # Dashboard entry point (router only)
+├── requirements.txt       # Ranged dependencies
+├── requirements.lock      # Pinned, CI-verified versions
 └── README.md
 ```
 
