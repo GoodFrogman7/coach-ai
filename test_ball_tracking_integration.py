@@ -189,7 +189,7 @@ except Exception as e:
 # Test 7: Check input videos
 print("\n[TEST 7] Checking input videos...")
 user_video = Path("data/user/input.mp4")
-ref_video = Path("data/reference/djokovic_backhand.mp4")
+ref_video = Path("data/reference/backhand/djokovic_backhand.mp4")
 
 if user_video.exists():
     print(f"  {OK} User video found: {user_video}")
@@ -201,7 +201,7 @@ if ref_video.exists():
     print(f"  {OK} Reference video found: {ref_video}")
 else:
     print(f"  {WARN} Reference video NOT found: {ref_video}")
-    print("     Place reference video at data/reference/djokovic_backhand.mp4 to test")
+    print("     Place reference video at data/reference/backhand/djokovic_backhand.mp4 to test")
 
 # Test 8: Check Streamlit dashboard
 print("\n[TEST 8] Checking Streamlit dashboard...")

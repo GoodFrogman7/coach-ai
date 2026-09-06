@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 
 from vision.extract_pose import extract_pose_landmarks
+from vision.reference_library import resolve_reference, cached_landmarks
+from vision.handedness import mirror_landmarks, needs_mirroring, normalize_handedness
 from vision.overlay_pose import create_overlay_video
 from vision.features import (
     compute_features_from_landmarks,
@@ -123,7 +125,8 @@ def detect_impact_frame(features_df: pd.DataFrame) -> int:
 
 
 def run_pipeline(config_path: str = None, user_video: str = None,
-                 ref_video: str = None, stroke: str = "backhand"):
+                 ref_video: str = None, stroke: str = "backhand",
+                 handed: str = "right"):
     """
     Run the full analysis pipeline with session management.
 
@@ -133,14 +136,35 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         user_video: Path to the user's video. Falls back to USER_VIDEO.
         ref_video: Path to the reference video. Falls back to REF_VIDEO.
         stroke: Stroke type being analyzed (backhand, forehand, serve,
-                volley, overhead). Recorded in the report metadata.
+                volley, overhead). Selects the reference clip and the
+                phase weights, and is recorded in the report metadata.
+        handed: The player's dominant hand ("right" or "left"). When it
+                differs from the reference clip's, the user's landmarks
+                are mirrored before feature computation.
     """
     # Load optional configuration (purely additive, maintains backward compatibility)
     config = load_config(config_path)
 
     # Resolve inputs; fall back to the built-in defaults for backward compatibility.
     user_video = user_video or USER_VIDEO
-    ref_video = ref_video or REF_VIDEO
+    handed = normalize_handedness(handed)
+    stroke = (stroke or "backhand").lower().strip()
+
+    # Reference selection: an explicit --reference wins; otherwise ask the
+    # library for this stroke and handedness. With nothing for the stroke,
+    # fall back to the built-in backhand clip and say so.
+    reference_entry = None
+    if not ref_video:
+        reference_entry = resolve_reference(stroke, handed)
+        if reference_entry:
+            ref_video = reference_entry["path"]
+        else:
+            ref_video = REF_VIDEO
+            if stroke != "backhand":
+                print(f"[WARNING] No {stroke} reference clip in data/reference/manifest.yaml; "
+                      f"comparing against the backhand clip.")
+    reference_handed = (reference_entry or {}).get("handedness", "right")
+    reference_player = (reference_entry or {}).get("player")
 
     print("=" * 60)
     print("Coach AI - Sports Technique Analysis")
@@ -191,15 +215,24 @@ def run_pipeline(config_path: str = None, user_video: str = None,
 
     print(f"\n[VIDEO] User video: {user_video} ({user_fps:.1f} fps)")
     print(f"[VIDEO] Reference video: {ref_video} ({ref_fps:.1f} fps)")
-    print(f"[STROKE] {stroke}")
+    print(f"[STROKE] {stroke} ({handed}-handed)")
+    if reference_player:
+        print(f"[REFERENCE] {reference_player} ({reference_handed}-handed) from the reference library")
 
     # Step 1: Extract pose landmarks
     print("\n[1/5] Extracting pose landmarks...")
     print("  -> Processing user video...")
     user_landmarks = extract_pose_landmarks(user_video)
 
+    if needs_mirroring(handed, reference_handed):
+        print(f"  -> Mirroring user landmarks ({handed}-handed player vs {reference_handed}-handed reference)")
+        user_landmarks = mirror_landmarks(user_landmarks)
+
     print("  -> Processing reference video...")
-    ref_landmarks = extract_pose_landmarks(ref_video)
+    if reference_entry:
+        ref_landmarks = cached_landmarks(ref_video, extract_pose_landmarks)
+    else:
+        ref_landmarks = extract_pose_landmarks(ref_video)
 
     # Step 2: Create overlay videos
     print("\n[2/5] Creating overlay videos...")
@@ -634,6 +667,8 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         session_id=session_id,  # Include session metadata if available
         ref_video=ref_video,
         stroke_type=stroke,
+        handedness=handed,
+        reference_player=reference_player,
         user_consistency=user_consistency,
         ref_consistency=ref_consistency,
         phase_weighted_score=phase_weighted_score,
@@ -732,7 +767,16 @@ if __name__ == "__main__":
         '--reference',
         type=str,
         default=None,
-        help='Path to the reference video (default: data/reference/djokovic_backhand.mp4)'
+        help='Path to the reference video (default: picked from data/reference/manifest.yaml '
+             'for the stroke)'
+    )
+    parser.add_argument(
+        '--handed',
+        type=str,
+        default='right',
+        choices=['right', 'left'],
+        help="Player's dominant hand (default: right). Left-handers are mirrored "
+             "to compare against right-handed references."
     )
     parser.add_argument(
         '--stroke',
@@ -749,5 +793,6 @@ if __name__ == "__main__":
         user_video=args.user,
         ref_video=args.reference,
         stroke=args.stroke,
+        handed=args.handed,
     )
     sys.exit(0 if success else 1)

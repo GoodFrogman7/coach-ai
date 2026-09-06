@@ -29,6 +29,8 @@ def generate_report(
     user_id: str = "default_user",
     ref_video: str = None,
     stroke_type: str = "backhand",
+    handedness: str = "right",
+    reference_player: str = None,
     user_consistency: dict = None,
     ref_consistency: dict = None,
     phase_weighted_score: float = None,
@@ -91,7 +93,9 @@ def generate_report(
 session_id: {session_id}
 user_id: {user_id}
 stroke: {stroke_type}
+handedness: {handedness}
 reference_video: {ref_video_name}
+reference_player: {reference_player or "unknown"}
 generated_at: {generated_at}
 ---
 
