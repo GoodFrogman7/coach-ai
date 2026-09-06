@@ -180,8 +180,14 @@ python vision/compare.py --stroke forehand --handed left
 - Reference pose landmarks are cached under `data/reference/<stroke>/cache/`, keyed by
   the clip's content hash and the MediaPipe version, so a reference clip is only
   processed once.
-- If no clip exists for a stroke, the pipeline says so and falls back to the backhand
-  clip. Add a clip by dropping it in the stroke folder and listing it in the manifest.
+- If no clip exists for a stroke, the pipeline switches to **range comparison**: each
+  metric is scored against the stroke profile's expected range (`vision/stroke_profiles.py`).
+  Inside the range scores 100; outside, the score falls with the distance beyond the
+  nearest edge. The report header records `comparison: reference` or `comparison: range`.
+  Add a clip by dropping it in the stroke folder and listing it in the manifest to get
+  frame-for-frame comparison instead.
+- Coaching cues and drills are worded per stroke (`vision/cue_templates.py`); the backhand
+  wording is unchanged and guarded by `test_report_snapshot.py`.
 
 ### Sport-Agnostic Configuration (Optional)
 

@@ -119,7 +119,10 @@ def compute_frame_features(frame_data: pd.DataFrame) -> dict:
     
     shoulder_angle = np.degrees(np.arctan2(shoulder_vec[1], shoulder_vec[0]))
     hip_angle = np.degrees(np.arctan2(hip_vec[1], hip_vec[0]))
-    features['hip_rotation'] = shoulder_angle - hip_angle
+    # Wrap to (-180, 180]: the raw difference of two atan2 angles jumps by
+    # 360 when one line crosses the +/-180 seam, so -358 and +2 were
+    # scored as a 360-degree deviation.
+    features['hip_rotation'] = ((shoulder_angle - hip_angle + 180.0) % 360.0) - 180.0
     
     # 5. Spine lean (mid-shoulder to mid-hip vs vertical)
     mid_shoulder = (l_shoulder[:2] + r_shoulder[:2]) / 2

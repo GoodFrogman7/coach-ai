@@ -181,14 +181,12 @@ def render_upload_page():
     elif library_ref:
         st.caption(f"Using library reference: {library_ref.get('player', 'pro')} "
                    f"({library_ref.get('handedness', 'right')}-handed {stroke})")
-    elif Path(DEFAULT_REFERENCE).exists():
-        st.warning(f"No {stroke} clip in the reference library; the built-in backhand "
-                   f"reference ({Path(DEFAULT_REFERENCE).name}) will be used.")
+    elif stroke == "backhand" and Path(DEFAULT_REFERENCE).exists():
+        st.caption(f"Using built-in reference: {Path(DEFAULT_REFERENCE).name}")
     else:
-        st.warning(
-            f"Built-in reference not found at `{DEFAULT_REFERENCE}`. "
-            "Upload your own reference video instead."
-        )
+        st.info(f"No {stroke} clip in the reference library yet. Your metrics will be scored "
+                f"against the expected ranges for a {stroke} instead. Upload your own reference "
+                "to compare against a specific player.")
 
     st.markdown("---")
 
@@ -209,17 +207,19 @@ def render_upload_page():
             return
         ref_path = _save_upload(ref_file, "ref")
     else:
-        ref_path = library_ref["path"] if library_ref else DEFAULT_REFERENCE
+        # None lets run_pipeline choose: library clip, built-in backhand clip, or range mode.
+        ref_path = library_ref["path"] if library_ref else None
 
     # Validate both videos are readable before the (slow) pipeline runs.
     ok_u, msg_u = validate_video(user_path, role="user video")
     if not ok_u:
         st.error(f"Your video could not be read: {msg_u}")
         return
-    ok_r, msg_r = validate_video(ref_path, role="reference video")
-    if not ok_r:
-        st.error(f"Reference video could not be read: {msg_r}")
-        return
+    if ref_path:
+        ok_r, msg_r = validate_video(ref_path, role="reference video")
+        if not ok_r:
+            st.error(f"Reference video could not be read: {msg_r}")
+            return
 
     with st.spinner("Analyzing your stroke — pose extraction + reference comparison (~1-3 min)…"):
         try:
