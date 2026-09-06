@@ -252,7 +252,7 @@ The Stroke Abstraction Layer provides:
   ✅ 100% backward compatibility
 
 Next Steps:
-  1. Read STROKE_ABSTRACTION.md for technical details
+  1. Read docs/analysis/STROKE_ABSTRACTION.md for technical details
   2. Run test_stroke_abstraction.py to see all tests pass
   3. Integrate stroke awareness into similarity scoring (Phase 3)
 
