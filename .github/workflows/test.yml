@@ -30,11 +30,12 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libgl1 libglib2.0-0
 
       # CPU-only torch is ~200 MB instead of ~2 GB with CUDA. Installing it first
-      # means sentence-transformers and ultralytics reuse it.
+      # means sentence-transformers and ultralytics reuse it. torchvision must
+      # come from the same index or its ops fail to register against torch.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-dev.txt
 
       # Fail loudly here rather than letting downstream scripts swallow an
