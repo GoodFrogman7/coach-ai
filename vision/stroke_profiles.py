@@ -7,13 +7,20 @@ Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
 
+# hip_rotation ranges are on the measured scale: the absolute angle between
+# the shoulder line and the hip line (features.py), which sits in roughly
+# 0-40 degrees at contact. The values below are PROVISIONAL. They were set
+# from one right-handed Djokovic backhand clip (about 7-14 degrees near
+# contact) and scaled by stroke using the relative emphasis of the original
+# profiles. Phase 2 labels enough clips to calibrate them properly.
+
 STROKE_PROFILES = {
     'backhand': {
         'name': 'Two-Handed Backhand',
         'description': 'Baseline two-handed backhand stroke',
         'biomechanical_intent': {
             'hip_rotation': {
-                'expected_range': (150, 220),  # degrees
+                'expected_range': (5, 35),  # degrees, |shoulder line - hip line|
                 'rationale': 'Hip coiling provides power generation'
             },
             'elbow_angle': {
@@ -42,7 +49,7 @@ STROKE_PROFILES = {
         'description': 'Baseline forehand stroke',
         'biomechanical_intent': {
             'hip_rotation': {
-                'expected_range': (180, 270),  # Larger than backhand
+                'expected_range': (10, 45),  # Larger than backhand
                 'rationale': 'Greater hip rotation for power on dominant side'
             },
             'elbow_angle': {
@@ -71,7 +78,7 @@ STROKE_PROFILES = {
         'description': 'First or second serve',
         'biomechanical_intent': {
             'hip_rotation': {
-                'expected_range': (200, 300),  # Maximum rotation
+                'expected_range': (15, 60),  # Maximum rotation
                 'rationale': 'Full body rotation for serve power'
             },
             'elbow_angle': {
@@ -100,7 +107,7 @@ STROKE_PROFILES = {
         'description': 'Net volley (forehand or backhand)',
         'biomechanical_intent': {
             'hip_rotation': {
-                'expected_range': (30, 90),  # Minimal rotation
+                'expected_range': (0, 20),  # Minimal rotation
                 'rationale': 'Compact motion for quick reaction at net'
             },
             'elbow_angle': {
@@ -129,7 +136,7 @@ STROKE_PROFILES = {
         'description': 'Overhead smash or high volley',
         'biomechanical_intent': {
             'hip_rotation': {
-                'expected_range': (150, 250),  # Similar to serve
+                'expected_range': (10, 50),  # Similar to serve
                 'rationale': 'Serve-like motion for power'
             },
             'elbow_angle': {
@@ -187,13 +194,13 @@ def get_stroke_aware_threshold(
         
     Example:
         >>> get_stroke_aware_threshold('hip_rotation', 'forehand')
-        (180, 270)  # Forehand expects larger rotation than backhand
+        (10, 45)  # Forehand expects larger rotation than backhand
         
         >>> get_stroke_aware_threshold('hip_rotation', 'backhand')
-        (150, 220)  # Backhand default (existing behavior)
+        (5, 35)  # Backhand default
         
         >>> get_stroke_aware_threshold('hip_rotation', 'unknown_stroke')
-        (150, 220)  # Falls back to backhand
+        (5, 35)  # Falls back to backhand
     """
     # Normalize stroke type
     stroke_type = stroke_type.lower().strip()

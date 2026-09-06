@@ -24,6 +24,8 @@ import pandas as pd
 from vision.extract_pose import extract_pose_landmarks
 from vision.reference_library import resolve_reference, cached_landmarks
 from vision.handedness import mirror_landmarks, needs_mirroring, normalize_handedness
+from vision.comparison import (STRATEGY_REFERENCE, STRATEGY_RANGE,
+                               build_range_reference, build_range_phase_reference)
 from vision.overlay_pose import create_overlay_video
 from vision.features import (
     compute_features_from_landmarks,
@@ -152,17 +154,20 @@ def run_pipeline(config_path: str = None, user_video: str = None,
 
     # Reference selection: an explicit --reference wins; otherwise ask the
     # library for this stroke and handedness. With nothing for the stroke,
-    # fall back to the built-in backhand clip and say so.
+    # switch to range comparison against the stroke profile. A backhand with
+    # no manifest entry keeps the built-in clip so old setups still work.
     reference_entry = None
+    strategy = STRATEGY_REFERENCE
     if not ref_video:
         reference_entry = resolve_reference(stroke, handed)
         if reference_entry:
             ref_video = reference_entry["path"]
-        else:
+        elif stroke == "backhand" and Path(REF_VIDEO).exists():
             ref_video = REF_VIDEO
-            if stroke != "backhand":
-                print(f"[WARNING] No {stroke} reference clip in data/reference/manifest.yaml; "
-                      f"comparing against the backhand clip.")
+        else:
+            strategy = STRATEGY_RANGE
+            print(f"[REFERENCE] No {stroke} clip in data/reference/manifest.yaml; "
+                  f"using range comparison against the {stroke} profile.")
     reference_handed = (reference_entry or {}).get("handedness", "right")
     reference_player = (reference_entry or {}).get("player")
 
@@ -176,10 +181,11 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         print(f"\n[ERROR] {msg}")
         return False
 
-    ok, msg = validate_video(ref_video, role="reference video")
-    if not ok:
-        print(f"\n[ERROR] {msg}")
-        return False
+    if strategy == STRATEGY_REFERENCE:
+        ok, msg = validate_video(ref_video, role="reference video")
+        if not ok:
+            print(f"\n[ERROR] {msg}")
+            return False
     
     # Initialize session management with fallback
     session_id = None
@@ -211,10 +217,11 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     
     # Get video FPS
     user_fps = get_video_fps(user_video)
-    ref_fps = get_video_fps(ref_video)
+    ref_fps = get_video_fps(ref_video) if strategy == STRATEGY_REFERENCE else user_fps
 
     print(f"\n[VIDEO] User video: {user_video} ({user_fps:.1f} fps)")
-    print(f"[VIDEO] Reference video: {ref_video} ({ref_fps:.1f} fps)")
+    if strategy == STRATEGY_REFERENCE:
+        print(f"[VIDEO] Reference video: {ref_video} ({ref_fps:.1f} fps)")
     print(f"[STROKE] {stroke} ({handed}-handed)")
     if reference_player:
         print(f"[REFERENCE] {reference_player} ({reference_handed}-handed) from the reference library")
@@ -228,19 +235,22 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         print(f"  -> Mirroring user landmarks ({handed}-handed player vs {reference_handed}-handed reference)")
         user_landmarks = mirror_landmarks(user_landmarks)
 
-    print("  -> Processing reference video...")
-    if reference_entry:
-        ref_landmarks = cached_landmarks(ref_video, extract_pose_landmarks)
-    else:
-        ref_landmarks = extract_pose_landmarks(ref_video)
+    ref_landmarks = None
+    if strategy == STRATEGY_REFERENCE:
+        print("  -> Processing reference video...")
+        if reference_entry:
+            ref_landmarks = cached_landmarks(ref_video, extract_pose_landmarks)
+        else:
+            ref_landmarks = extract_pose_landmarks(ref_video)
 
     # Step 2: Create overlay videos
     print("\n[2/5] Creating overlay videos...")
     print("  -> User overlay...")
     create_overlay_video(user_video, str(output_paths['overlay_user']))
 
-    print("  -> Reference overlay...")
-    create_overlay_video(ref_video, str(output_paths['overlay_ref']))
+    if strategy == STRATEGY_REFERENCE:
+        print("  -> Reference overlay...")
+        create_overlay_video(ref_video, str(output_paths['overlay_ref']))
     
     # Note: Broadcast overlay with ball tracking will be created in Step 4.9 after ball detection
     
@@ -250,25 +260,34 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     user_features = compute_wrist_speed(user_features, user_fps)
     save_features(user_features, str(output_paths['features_user']))
     
-    ref_features = compute_features_from_landmarks(ref_landmarks)
-    ref_features = compute_wrist_speed(ref_features, ref_fps)
-    save_features(ref_features, str(output_paths['features_ref']))
+    if strategy == STRATEGY_REFERENCE:
+        ref_features = compute_features_from_landmarks(ref_landmarks)
+        ref_features = compute_wrist_speed(ref_features, ref_fps)
+        save_features(ref_features, str(output_paths['features_ref']))
+    else:
+        ref_features = None
     
     # Step 4: Detect impact frames
     print("\n[4/5] Detecting impact frames...")
     user_impact = detect_impact_frame(user_features)
-    ref_impact = detect_impact_frame(ref_features)
+    ref_impact = detect_impact_frame(ref_features) if ref_features is not None else user_impact
     print(f"  -> User impact frame: {user_impact}")
-    print(f"  -> Reference impact frame: {ref_impact}")
+    if strategy == STRATEGY_REFERENCE:
+        print(f"  -> Reference impact frame: {ref_impact}")
     
-    # Get metrics at impact
+    # Get metrics at impact. In range mode the "reference" is the user's own
+    # metrics clamped into the stroke profile's expected ranges, so every
+    # downstream comparison measures distance outside the range.
     user_metrics = get_impact_metrics(user_features, user_impact)
-    ref_metrics = get_impact_metrics(ref_features, ref_impact)
+    if strategy == STRATEGY_REFERENCE:
+        ref_metrics = get_impact_metrics(ref_features, ref_impact)
+    else:
+        ref_metrics = build_range_reference(user_metrics, stroke)
     
     # Segment strokes into phases
     print("\n[4.5/5] Segmenting movement phases...")
     user_phases = segment_stroke_phases(user_features, user_impact)
-    ref_phases = segment_stroke_phases(ref_features, ref_impact)
+    ref_phases = segment_stroke_phases(ref_features, ref_impact) if ref_features is not None else dict(user_phases)
     
     print(f"  -> User phases: Prep(0-{user_phases['preparation'][1]}), "
           f"Load({user_phases['load'][0]}-{user_phases['load'][1]}), "
@@ -277,18 +296,22 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     
     # Compute phase-specific metrics
     user_phase_metrics = compute_phase_metrics(user_features, user_phases)
-    ref_phase_metrics = compute_phase_metrics(ref_features, ref_phases)
+    if strategy == STRATEGY_REFERENCE:
+        ref_phase_metrics = compute_phase_metrics(ref_features, ref_phases)
+    else:
+        ref_phase_metrics = build_range_phase_reference(user_phase_metrics, stroke)
     
     # Step 4.6: Temporal intelligence - normalize timelines and compute consistency
     print("\n[4.6/5] Computing temporal consistency metrics...")
     
     # Normalize phase timelines to 0-100%
     user_normalized = normalize_phase_timeline(user_features, user_phases)
-    ref_normalized = normalize_phase_timeline(ref_features, ref_phases)
-    
-    # Compute consistency (std dev) within each phase
     user_consistency = compute_phase_consistency(user_normalized)
-    ref_consistency = compute_phase_consistency(ref_normalized)
+    if strategy == STRATEGY_REFERENCE:
+        ref_normalized = normalize_phase_timeline(ref_features, ref_phases)
+        ref_consistency = compute_phase_consistency(ref_normalized)
+    else:
+        ref_consistency = None
     
     # Compute similarity scores for progress tracking
     overall_score = compute_similarity_score(user_metrics, ref_metrics)
@@ -669,6 +692,7 @@ def run_pipeline(config_path: str = None, user_video: str = None,
         stroke_type=stroke,
         handedness=handed,
         reference_player=reference_player,
+        comparison_strategy=strategy,
         user_consistency=user_consistency,
         ref_consistency=ref_consistency,
         phase_weighted_score=phase_weighted_score,
@@ -737,9 +761,10 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     
     print("\nOutputs generated:")
     print(f"  • {output_paths['overlay_user']}")
-    print(f"  • {output_paths['overlay_ref']}")
     print(f"  • {output_paths['features_user']}")
-    print(f"  • {output_paths['features_ref']}")
+    if strategy == STRATEGY_REFERENCE:
+        print(f"  • {output_paths['overlay_ref']}")
+        print(f"  • {output_paths['features_ref']}")
     print(f"  • {output_paths['report']}")
     print(f"\nOpen {output_paths['report']} to see your personalized coaching feedback!")
     

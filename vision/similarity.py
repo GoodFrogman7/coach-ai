@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from vision.config_session import get_metrics_list, get_phase_weights
+from vision.cue_templates import get_cue
 
 def extract_phase_feature_vector(phase_metrics: dict, metric_keys: list = None) -> np.ndarray:
     """
@@ -468,7 +469,8 @@ def get_impact_metrics(features_df: pd.DataFrame, impact_frame: int, window: int
 
 def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict, 
                            user_phase_metrics: dict = None, 
-                           ref_phase_metrics: dict = None) -> list:
+                           ref_phase_metrics: dict = None,
+                           stroke: str = 'backhand') -> list:
     """
     Rank potential coaching cues by metric deviation magnitude.
     
@@ -477,43 +479,45 @@ def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict,
         ref_metrics: Reference impact metrics
         user_phase_metrics: Optional phase-specific user metrics
         ref_phase_metrics: Optional phase-specific reference metrics
+        stroke: Stroke whose cue wording to use (see vision.cue_templates)
         
     Returns:
         List of tuples: (priority_score, cue_text, metric_name, deviation, phase)
     """
     cue_candidates = []
+    cue = lambda key: get_cue(stroke, key)  # noqa: E731
     
     # Analyze impact metrics
     metrics_config = {
         'left_elbow_angle': {
             'weight': 2.0,
             'threshold': 15,
-            'high': "**Bend your left elbow more** at contact. Your arm is too straight, reducing control and power transfer.",
-            'low': "**Extend your left elbow slightly more** through contact. A bit more extension will add reach and power."
+            'high': cue('left_elbow_angle.high'),
+            'low': cue('left_elbow_angle.low')
         },
         'right_elbow_angle': {
             'weight': 2.0,
             'threshold': 15,
-            'high': "**Keep your right elbow closer to your body** for better stability. Think 'compact arms' through the stroke.",
-            'low': "**Allow your right elbow to extend more** through the hitting zone for better racquet speed."
+            'high': cue('right_elbow_angle.high'),
+            'low': cue('right_elbow_angle.low')
         },
         'hip_rotation': {
             'weight': 2.5,
             'threshold': 5,
-            'low_abs': "**Rotate your hips more** into the shot. Your upper body is doing most of the work—engage those hips!",
-            'high_abs': "**Control your hip rotation**. Over-rotation can throw off your timing and balance."
+            'low_abs': cue('hip_rotation.low_abs'),
+            'high_abs': cue('hip_rotation.high_abs')
         },
         'spine_lean': {
             'weight': 1.5,
             'threshold': 8,
-            'high': "**Stay more upright** through contact. You're leaning too much, which affects balance.",
-            'low': "**Lean into the shot slightly more** for better weight transfer through the ball."
+            'high': cue('spine_lean.high'),
+            'low': cue('spine_lean.low')
         },
         'stance_width_normalized': {
             'weight': 2.2,
             'threshold': 0.3,
-            'low': "**Widen your stance** for a more stable base. You'll generate more power from your legs.",
-            'high': "**Narrow your stance slightly**. Too wide limits your hip rotation and recovery speed."
+            'low': cue('stance_width_normalized.low'),
+            'high': cue('stance_width_normalized.high')
         }
     }
     
@@ -528,7 +532,7 @@ def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict,
             if knee_diff > 0:
                 cue_candidates.append((
                     deviation_score,
-                    "**Bend your knees more** throughout the stroke. Lower stance = more power from the ground up.",
+                    cue('knee_angle_avg.high'),
                     'knee_angle_avg',
                     knee_diff,
                     'contact'
@@ -536,7 +540,7 @@ def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict,
             else:
                 cue_candidates.append((
                     deviation_score,
-                    "**Don't over-crouch**. Your knees are bending too much, which can slow your recovery.",
+                    cue('knee_angle_avg.low'),
                     'knee_angle_avg',
                     knee_diff,
                     'contact'
@@ -592,7 +596,7 @@ def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict,
     
     # Add phase-specific cues with their priority
     if user_phase_metrics and ref_phase_metrics:
-        phase_cues = get_phase_cues_with_priority(user_phase_metrics, ref_phase_metrics)
+        phase_cues = get_phase_cues_with_priority(user_phase_metrics, ref_phase_metrics, stroke=stroke)
         cue_candidates.extend(phase_cues)
     
     # Sort by priority score (descending)
@@ -601,7 +605,8 @@ def rank_cues_by_deviation(user_metrics: dict, ref_metrics: dict,
     return cue_candidates
 
 
-def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
+def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict,
+                                 stroke: str = 'backhand') -> list:
     """
     Get phase-specific cues with priority scores.
     
@@ -609,6 +614,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         List of tuples: (priority_score, cue_text, metric_name, deviation, phase)
     """
     cues = []
+    cue = lambda key: get_cue(stroke, key)  # noqa: E731
     
     # Preparation phase
     if 'preparation' in user_phases and 'preparation' in ref_phases:
@@ -620,7 +626,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if shoulder_diff > 25:
             cues.append((
                 shoulder_diff * 1.5,
-                "**[Preparation]** Turn your shoulders earlier and more completely during the setup phase.",
+                cue('preparation.shoulder'),
                 'left_shoulder_angle',
                 shoulder_diff,
                 'preparation'
@@ -631,7 +637,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if stance_diff < -0.5:
             cues.append((
                 abs(stance_diff) * 25,  # High weight for stance
-                "**[Preparation]** Set up with a wider base from the start. Narrow stance limits power generation.",
+                cue('preparation.stance'),
                 'stance_width_normalized',
                 stance_diff,
                 'preparation'
@@ -647,7 +653,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if hip_diff < -8:
             cues.append((
                 abs(hip_diff) * 3.0,  # Very high weight
-                "**[Load]** Coil your hips more during the loading phase. This is where you store energy for the shot.",
+                cue('load.hip'),
                 'hip_rotation',
                 hip_diff,
                 'load'
@@ -659,7 +665,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if user_knee_avg - ref_knee_avg > 20:
             cues.append((
                 abs(user_knee_avg - ref_knee_avg) * 1.8,
-                "**[Load]** Drop your center of gravity more in the loading phase. Bend those knees!",
+                cue('load.knee'),
                 'knee_angle_avg',
                 user_knee_avg - ref_knee_avg,
                 'load'
@@ -676,7 +682,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if user_elbow_ext < ref_elbow_ext - 20:
             cues.append((
                 abs(user_elbow_ext - ref_elbow_ext) * 1.2,
-                "**[Follow-through]** Extend your arms more through the finish. You're pulling back too early.",
+                cue('follow_through.elbow'),
                 'left_elbow_angle',
                 user_elbow_ext - ref_elbow_ext,
                 'follow_through'
@@ -687,7 +693,7 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
         if abs(spine_diff) > 10:
             cues.append((
                 abs(spine_diff) * 1.3,
-                "**[Follow-through]** Maintain better balance through your finish position.",
+                cue('follow_through.spine'),
                 'spine_lean',
                 spine_diff,
                 'follow_through'
@@ -699,7 +705,8 @@ def get_phase_cues_with_priority(user_phases: dict, ref_phases: dict) -> list:
 def generate_coaching_cues(user_metrics: dict, ref_metrics: dict, 
                           user_phase_metrics: dict = None, 
                           ref_phase_metrics: dict = None,
-                          limit_primary: int = 2) -> tuple:
+                          limit_primary: int = 2,
+                          stroke: str = 'backhand') -> tuple:
     """
     Generate coaching cues based on metric differences, ranked by priority.
     
@@ -716,7 +723,8 @@ def generate_coaching_cues(user_metrics: dict, ref_metrics: dict,
     # Get all cues ranked by deviation magnitude
     ranked_cues = rank_cues_by_deviation(
         user_metrics, ref_metrics, 
-        user_phase_metrics, ref_phase_metrics
+        user_phase_metrics, ref_phase_metrics,
+        stroke=stroke,
     )
     
     # Extract just the cue text
@@ -727,11 +735,8 @@ def generate_coaching_cues(user_metrics: dict, ref_metrics: dict,
     
     # Ensure we have at least minimum cues
     if len(all_cues) < 3:
-        fallback_cues = [
-            "**Keep your eye on the ball** through contact. Head still, watch the ball hit the strings.",
-            "**Follow through completely** toward your target. Don't cut the swing short.",
-            "**Relax your grip** slightly. A death-grip reduces racquet head speed."
-        ]
+        fallback_cues = [get_cue(stroke, 'fallback.1'), get_cue(stroke, 'fallback.2'),
+                         get_cue(stroke, 'fallback.3')]
         for fallback in fallback_cues:
             if len(all_cues) >= 5:
                 break
@@ -741,62 +746,44 @@ def generate_coaching_cues(user_metrics: dict, ref_metrics: dict,
     return primary_cues, all_cues[:5], ranked_cues  # Return top 5 total cues
 
 
-def generate_drills(user_metrics: dict, ref_metrics: dict) -> list:
+def generate_drills(user_metrics: dict, ref_metrics: dict, stroke: str = 'backhand') -> list:
     """
     Generate drill suggestions based on identified weaknesses.
     
     Args:
         user_metrics: User's impact metrics
         ref_metrics: Reference impact metrics
+        stroke: Stroke whose drill wording to use (see vision.cue_templates)
         
     Returns:
         List of drill descriptions
     """
     drills = []
+    cue = lambda key: get_cue(stroke, key)  # noqa: E731
     
     # Knee bend drill
     avg_user_knee = (user_metrics['left_knee_angle'] + user_metrics['right_knee_angle']) / 2
     avg_ref_knee = (ref_metrics['left_knee_angle'] + ref_metrics['right_knee_angle']) / 2
     
     if avg_user_knee - avg_ref_knee > 10:
-        drills.append(
-            "**Wall Sits with Shadow Swings**: Stand against a wall in a squat position (knees at 90°). "
-            "Hold for 30 seconds while performing slow-motion backhand swings. "
-            "This builds leg strength and muscle memory for proper knee bend. Do 3 sets."
-        )
+        drills.append(cue('drill.knee'))
     
     # Hip rotation drill
     hip_diff = abs(user_metrics['hip_rotation']) - abs(ref_metrics['hip_rotation'])
     if hip_diff < -3:
-        drills.append(
-            "**Medicine Ball Rotational Throws**: Stand sideways to a wall, holding a medicine ball (4-8 lbs). "
-            "Rotate your hips and core explosively to throw the ball against the wall. "
-            "Catch and repeat. Do 2 sets of 10 each side to build rotational power."
-        )
+        drills.append(cue('drill.hip'))
     
     # Balance/stance drill
     stance_diff = user_metrics['stance_width_normalized'] - ref_metrics['stance_width_normalized']
     if abs(stance_diff) > 0.2:
-        drills.append(
-            "**Ladder Footwork Drill**: Use an agility ladder (or tape lines). "
-            "Practice split-stepping into your backhand stance, focusing on consistent foot spacing. "
-            "Hit shadow strokes at each stop. 5 minutes daily improves footwork consistency."
-        )
+        drills.append(cue('drill.stance'))
     
     # General two-handed backhand drills
     if len(drills) < 2:
-        drills.append(
-            "**One-Arm Backhand Feeds**: Have a partner feed soft balls while you hit backhands with only your "
-            "non-dominant hand on the racquet. This strengthens your lead arm and improves control. "
-            "Do 20 balls, then switch back to two hands—you'll feel the difference immediately."
-        )
+        drills.append(cue('drill.general_1'))
     
     if len(drills) < 2:
-        drills.append(
-            "**Contact Point Drill**: Set up a ball on a cone or have a partner hold one at your ideal contact point. "
-            "Practice bringing your racquet to that exact spot with proper form, pausing at contact. "
-            "This builds muscle memory for consistent contact. 50 reps before each practice session."
-        )
+        drills.append(cue('drill.general_2'))
     
     return drills[:2]
 

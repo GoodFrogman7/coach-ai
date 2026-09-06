@@ -15,6 +15,8 @@ from vision.similarity import (compute_phase_similarity_scores, compute_similari
 from vision.adaptive import generate_adaptive_coaching_focus
 from vision.drills import generate_adaptive_drill_recommendations
 from vision.config_session import REF_VIDEO
+from vision.stroke_profiles import STROKE_PROFILES
+from vision.comparison import STRATEGY_REFERENCE, STRATEGY_RANGE, describe_strategy
 
 def generate_report(
     user_metrics: dict, 
@@ -31,6 +33,7 @@ def generate_report(
     stroke_type: str = "backhand",
     handedness: str = "right",
     reference_player: str = None,
+    comparison_strategy: str = STRATEGY_REFERENCE,
     user_consistency: dict = None,
     ref_consistency: dict = None,
     phase_weighted_score: float = None,
@@ -68,11 +71,19 @@ def generate_report(
         Markdown string for the report
     """
     # Generate cues with prioritization
+    stroke_key = (stroke_type or 'backhand').lower().strip()
+    if stroke_key not in STROKE_PROFILES:
+        stroke_key = 'backhand'
+    stroke_name = STROKE_PROFILES[stroke_key]['name']
+    range_mode = comparison_strategy == STRATEGY_RANGE
+    ref_column = 'Expected Range' if range_mode else 'Pro Reference'
+
     primary_cues, all_cues, ranked_cues = generate_coaching_cues(
         user_metrics, ref_metrics, 
-        user_phase_metrics, ref_phase_metrics
+        user_phase_metrics, ref_phase_metrics,
+        stroke=stroke_key,
     )
-    drills = generate_drills(user_metrics, ref_metrics)
+    drills = generate_drills(user_metrics, ref_metrics, stroke=stroke_key)
     
     # Compute similarity scores
     overall_score = compute_similarity_score(user_metrics, ref_metrics)
@@ -94,16 +105,19 @@ session_id: {session_id}
 user_id: {user_id}
 stroke: {stroke_type}
 handedness: {handedness}
-reference_video: {ref_video_name}
+reference_video: {ref_video_name if not range_mode else "none"}
 reference_player: {reference_player or "unknown"}
+comparison: {comparison_strategy}
 generated_at: {generated_at}
 ---
 
 """
     
-    report += """# Two-Handed Backhand Analysis Report
+    report += f"""# {stroke_name} Analysis Report
 
 """
+    if range_mode:
+        report += f"> {describe_strategy(STRATEGY_RANGE, stroke_key)}\n\n"
     
     # ========================================================================
     # EXECUTIVE SUMMARY - Quick overview of key findings
@@ -198,11 +212,13 @@ generated_at: {generated_at}
 
 """
     
-    report += """---
+    compared_to = ("the expected ranges for the stroke" if range_mode
+                   else f"a professional reference ({reference_player or 'Djokovic'})")
+    report += f"""---
 
 ## Overview
 
-Great work putting in the reps! I've analyzed your two-handed backhand against a professional reference (Djokovic). Below you'll find detailed analysis, specific coaching cues, and practice drills to take your game to the next level.
+Great work putting in the reps! I've analyzed your {stroke_name.lower()} against {compared_to}. Below you'll find detailed analysis, specific coaching cues, and practice drills to take your game to the next level.
 
 ---
 
@@ -535,9 +551,9 @@ This ensures your practice time is spent efficiently on the most impactful inter
         report += f"{summary}\n\n---\n\n"
     
     # Key metrics comparison
-    report += """## 📊 Key Metrics Comparison
+    report += f"""## 📊 Key Metrics Comparison
 
-| Metric | Your Stroke | Pro Reference | Difference |
+| Metric | Your Stroke | {ref_column} | Difference |
 |--------|-------------|---------------|------------|
 """
     
@@ -563,7 +579,7 @@ This ensures your practice time is spent efficiently on the most impactful inter
             report += f"| {label} | {user_val:.1f}° | {ref_val:.1f}° | {sign}{diff:.1f}° |\n"
     
     report += f"""
-*Impact frame detected: Frame {user_impact_frame} (you) vs Frame {ref_impact_frame} (reference)*
+*Impact frame detected: Frame {user_impact_frame} (you){'' if range_mode else f' vs Frame {ref_impact_frame} (reference)'}*
 
 ---
 """
