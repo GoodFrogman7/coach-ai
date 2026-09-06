@@ -5,7 +5,6 @@ This module loads markdown files from kb/, chunks them, and creates a searchable
 using TF-IDF vectorization for semantic retrieval.
 """
 
-import os
 import json
 import re
 from pathlib import Path

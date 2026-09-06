@@ -6,14 +6,6 @@ Technique similarity scoring (per-metric, per-phase) and coaching cues.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
-from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
 import numpy as np
 import pandas as pd
 from vision.config_session import get_metrics_list, get_phase_weights

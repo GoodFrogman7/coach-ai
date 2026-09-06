@@ -12,7 +12,6 @@ This script validates:
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-import numpy as np
 from vision.compare import (
     compute_player_baseline,
     compare_to_baseline
@@ -260,12 +259,12 @@ def test_baseline_statistics():
     baseline = compute_player_baseline(historical_sessions, min_sessions=3)
     
     print(f"\nBaseline Technique: {baseline['baseline_technique_score']}")
-    print(f"Expected: 80.0 (mean of 70, 80, 90)")
+    print("Expected: 80.0 (mean of 70, 80, 90)")
     
     elbow_stats = baseline['baseline_metrics']['elbow_angle']
     print(f"\nElbow Angle Mean: {elbow_stats['mean']}")
     print(f"Elbow Angle Std: {elbow_stats['std']}")
-    print(f"Expected Mean: 160.0 (mean of 150, 160, 170)")
+    print("Expected Mean: 160.0 (mean of 150, 160, 170)")
     
     assert abs(baseline['baseline_technique_score'] - 80.0) < 0.1
     assert abs(baseline['baseline_readiness_score'] - 80.0) < 0.1

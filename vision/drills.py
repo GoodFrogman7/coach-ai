@@ -6,16 +6,10 @@ Drill knowledge base, recommendations, and outcome/effectiveness tracking.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
 import json
-import math
-import re
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
 import numpy as np
-import pandas as pd
 from vision.movement import is_movement_metric
 
 def get_drill_knowledge_base() -> dict:
@@ -598,7 +592,7 @@ def generate_adaptive_drill_recommendations(
                     'rationale': drill['rationale'],
                     'priority_score': issue['priority_score'],
                     'urgency': 'MAINTENANCE',
-                    'reason': f"Currently improving - maintain progress with light practice"
+                    'reason': "Currently improving - maintain progress with light practice"
                 })
     
     # Count suppressed issues (no drills recommended)
@@ -827,7 +821,7 @@ def get_drill_effectiveness_summary(output_dir: str = "outputs") -> dict:
         
         return summary
     
-    except Exception as e:
+    except Exception:
         # Silently fail - this is optional intelligence
         return {}
 
@@ -975,7 +969,7 @@ def compute_drill_confidence_scores(output_dir: str = "outputs") -> dict:
         
         return confidence_scores
     
-    except Exception as e:
+    except Exception:
         # Silently fail - this is read-only intelligence
         return {}
 

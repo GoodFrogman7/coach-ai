@@ -7,7 +7,7 @@ Performs semantic search using sentence-transformer embeddings.
 import json
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 # Try to import sentence-transformers
 try:
@@ -67,7 +67,7 @@ class EmbeddingRetriever:
             self.loaded = True
             print(f"[OK] Embedding index loaded: {len(self.doc_metadata)} chunks")
             
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             print(f"Warning: Embedding index files not found in {self.index_dir}/")
             print("Run 'python rag/embedding_index.py' to create embedding index")
             self.loaded = False

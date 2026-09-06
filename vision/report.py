@@ -6,16 +6,9 @@ Coaching report generation (assembles all analysis into report.md).
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
 import numpy as np
-import pandas as pd
 from vision.similarity import (compute_phase_similarity_scores, compute_similarity_score,
                                generate_coaching_cues, generate_drills,
                                interpret_consistency, interpret_ml_similarity)
@@ -134,7 +127,7 @@ generated_at: {generated_at}
     
     # Top weaknesses from ranked cues
     if len(ranked_cues) >= 2:
-        report += f"""**🎯 Key Areas for Improvement:**
+        report += """**🎯 Key Areas for Improvement:**
 """
         for i in range(min(3, len(ranked_cues))):
             metric_name = ranked_cues[i][2].replace('_', ' ').title()
@@ -326,7 +319,7 @@ These areas are either improving or require monitoring before acting:
                 if cue['progress_delta'] < -5:
                     report += f"   - 🎉 Improving: {cue['progress_delta']:.1f} points better\n"
                 elif cue['reliability'] == 'Low':
-                    report += f"   - ⚠️ Low reliability - verify measurement quality\n"
+                    report += "   - ⚠️ Low reliability - verify measurement quality\n"
                 report += "\n"
         
         # Suppressed issues (low reliability or minor)
@@ -806,19 +799,19 @@ This section provides insight into measurement quality and technique stability d
                 low_rel.append(f"- **{metric_name}**: {std:.1f}° std dev")
         
         if high_rel:
-            report += f"**✓ High Reliability** - Very stable measurements:\n"
+            report += "**✓ High Reliability** - Very stable measurements:\n"
             for item in high_rel:
                 report += f"{item}\n"
             report += "\n"
         
         if medium_rel:
-            report += f"**~ Medium Reliability** - Moderate variation:\n"
+            report += "**~ Medium Reliability** - Moderate variation:\n"
             for item in medium_rel:
                 report += f"{item}\n"
             report += "\n"
         
         if low_rel:
-            report += f"**✗ Lower Reliability** - Higher variation (may indicate dynamic movement or measurement noise):\n"
+            report += "**✗ Lower Reliability** - Higher variation (may indicate dynamic movement or measurement noise):\n"
             for item in low_rel:
                 report += f"{item}\n"
             report += "\n"
@@ -1064,7 +1057,6 @@ This section provides personalized context by comparing your current session to 
             for metric_key, comparison in baseline_comparisons.items():
                 delta_direction = comparison['delta_direction']
                 interpretation = comparison['interpretation']
-                delta_percent = comparison['delta_percent']
                 
                 # Choose emoji based on direction
                 if delta_direction == 'above':

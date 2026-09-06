@@ -30,7 +30,7 @@ def migrate_sessions():
                 
                 session_id = session_dir.name
                 default_user["sessions"][session_id] = {
-                    "name": f"Session {session_count + 1}" if has_report else f"Incomplete Session",
+                    "name": f"Session {session_count + 1}" if has_report else "Incomplete Session",
                     "date": session_id,
                     "complete": has_report
                 }

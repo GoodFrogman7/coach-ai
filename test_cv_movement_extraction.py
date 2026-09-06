@@ -97,7 +97,7 @@ com_df = compute_center_of_mass(landmarks)
 print(f"Landmarks shape: {landmarks.shape}")
 print(f"COM shape: {com_df.shape}")
 print(f"COM columns: {list(com_df.columns)}")
-print(f"Sample COM values:")
+print("Sample COM values:")
 print(f"  Frame 0: x={com_df['com_x'].iloc[0]:.4f}, y={com_df['com_y'].iloc[0]:.4f}")
 print(f"  Frame 25: x={com_df['com_x'].iloc[25]:.4f}, y={com_df['com_y'].iloc[25]:.4f}")
 
@@ -118,7 +118,7 @@ print(f"Split-step detected: {split_step_result['split_step_quality']}")
 if split_step_result['split_step_timing_seconds'] is not None:
     print(f"Timing: {split_step_result['split_step_timing_seconds']:.3f}s before contact")
 else:
-    print(f"Timing: Not detected")
+    print("Timing: Not detected")
 print(f"Confidence: {split_step_result['confidence']:.2f}")
 print(f"Split-step frame: {split_step_result['split_step_frame']}")
 
@@ -182,13 +182,13 @@ full_landmarks = create_synthetic_landmarks(num_frames=100, with_split_step=True
 metrics = extract_movement_metrics_from_video(full_landmarks, contact_frame=50, fps=24.0)
 
 print(f"Overall confidence: {metrics['overall_confidence']:.2f}")
-print(f"\nSplit-step timing:")
+print("\nSplit-step timing:")
 print(f"  Quality: {metrics['split_step_timing']['split_step_quality']}")
 print(f"  Confidence: {metrics['split_step_timing']['confidence']:.2f}")
-print(f"\nRecovery time:")
+print("\nRecovery time:")
 print(f"  Time: {metrics['recovery_time']['recovery_time_seconds']:.2f}s")
 print(f"  Confidence: {metrics['recovery_time']['confidence']:.2f}")
-print(f"\nBalance drift:")
+print("\nBalance drift:")
 print(f"  Stability: {metrics['balance_drift']['stability_score']:.1f}/100")
 print(f"  Confidence: {metrics['balance_drift']['confidence']:.2f}")
 

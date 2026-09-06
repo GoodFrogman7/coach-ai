@@ -48,7 +48,7 @@ class KnowledgeRetriever:
             self.loaded = True
             print(f"[OK] Index loaded: {len(self.doc_metadata)} chunks")
             
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             print(f"Warning: Index not found in {self.index_dir}/")
             print("Run 'python rag/index_kb.py' to create index first")
             self.loaded = False

@@ -188,6 +188,6 @@ if __name__ == "__main__":
     video_path = sys.argv[1]
     output_path = sys.argv[2]
     
-    print(f"Creating overlay video...")
+    print("Creating overlay video...")
     create_overlay_video(video_path, output_path)
 

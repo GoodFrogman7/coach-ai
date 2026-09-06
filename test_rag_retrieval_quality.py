@@ -38,7 +38,7 @@ def test_retrieval_quality():
         # Show stats
         stats = result.get('retrieval_stats', {})
         if stats:
-            print(f"\nStats:")
+            print("\nStats:")
             print(f"   Top1 Score: {stats.get('top1_score', 0.0):.3f}")
             print(f"   Avg Top3:   {stats.get('avg_top3', 0.0):.3f}")
             print(f"   Results:    {stats.get('num_results', 0)}")
@@ -75,7 +75,7 @@ def test_retrieval_quality():
         
         # Expected outcome for key queries
         if query == "What causes balance drift?":
-            print(f"\n[EXPECTED] balance_drift_explained.md with Medium/High confidence")
+            print("\n[EXPECTED] balance_drift_explained.md with Medium/High confidence")
             if result['confidence'] in ['Medium', 'High']:
                 print(f"   [PASS] Confidence is {result['confidence']}")
             else:

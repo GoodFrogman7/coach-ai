@@ -154,7 +154,7 @@ print(f"Visibility score: {quality_low['visibility_score']:.2f}")
 print(f"Jitter score: {quality_low['jitter_score']:.2f}")
 print(f"Tracking stability: {quality_low['tracking_stability_score']:.2f}")
 print(f"Missing data ratio: {quality_low['missing_data_ratio']:.2f}")
-print(f"Trust issues:")
+print("Trust issues:")
 for issue in quality_low['trust_reasons']:
     print(f"  • {issue}")
 

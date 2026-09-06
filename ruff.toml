@@ -1,0 +1,16 @@
+# Minimal lint gate: pyflakes (F) and syntax/IO errors (E9) only.
+# Widen the rule set deliberately, one family at a time, after Phase 0.
+target-version = "py38"
+line-length = 120
+exclude = ["venv", ".venv", "outputs", "data", "models", "kb", "docs"]
+
+[lint]
+select = ["F", "E9"]
+
+[lint.per-file-ignores]
+# Package re-exports.
+"__init__.py" = ["F401"]
+# Legacy script that imports names purely to probe that dependencies install.
+"test_ball_tracking_integration.py" = ["F401"]
+# Deliberate facade: star-imports and re-exports the decomposed modules.
+"vision/compare.py" = ["F405"]

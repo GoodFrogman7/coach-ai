@@ -6,14 +6,8 @@ Progress tracking, player baseline, match readiness, training load, narratives.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
 import numpy as np
 import pandas as pd
 
@@ -482,13 +476,11 @@ def compute_training_load_recommendation(
     
     # Extract key signals
     readiness_score = 70.0  # Default moderate readiness
-    readiness_level = "Good"
     fatigue_score = 30.0  # Default low fatigue
     trust_score = 0.8  # Default good trust
     
     if match_readiness:
         readiness_score = match_readiness.get('readiness_score', 70.0)
-        readiness_level = match_readiness.get('readiness_level', 'Good')
         confidence = match_readiness.get('confidence', 0.5)
     
     if fatigue_analysis:
@@ -698,7 +690,7 @@ def load_historical_sessions(output_dir: str = "outputs", max_sessions: int = 10
             
             sessions.append(session_data)
         
-        except Exception as e:
+        except Exception:
             # Skip sessions that can't be loaded
             continue
     

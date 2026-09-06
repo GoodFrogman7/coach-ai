@@ -131,9 +131,9 @@ def test_narrative_positive_trends():
     
     print(f"\nHas Narrative: {narrative['has_narrative']}")
     print(f"Session Count: {narrative['session_count']}")
-    print(f"\nNarrative Summary:")
+    print("\nNarrative Summary:")
     print(f"{narrative['narrative_summary']}")
-    print(f"\nCoach's Take:")
+    print("\nCoach's Take:")
     print(f"{narrative['coach_take']}")
     
     assert narrative['has_narrative'] == True
@@ -164,9 +164,9 @@ def test_narrative_mixed_trends():
     
     narrative = generate_progress_narrative(historical_sessions, num_sessions=5, min_sessions=3)
     
-    print(f"\nNarrative Summary:")
+    print("\nNarrative Summary:")
     print(f"{narrative['narrative_summary']}")
-    print(f"\nCoach's Take:")
+    print("\nCoach's Take:")
     print(f"{narrative['coach_take']}")
     
     assert narrative['has_narrative'] == True
@@ -195,9 +195,9 @@ def test_narrative_stable_performance():
     
     narrative = generate_progress_narrative(historical_sessions, num_sessions=5, min_sessions=3)
     
-    print(f"\nNarrative Summary:")
+    print("\nNarrative Summary:")
     print(f"{narrative['narrative_summary']}")
-    print(f"\nCoach's Take:")
+    print("\nCoach's Take:")
     print(f"{narrative['coach_take']}")
     
     assert narrative['has_narrative'] == True
@@ -285,7 +285,7 @@ def test_narrative_with_missing_data():
     narrative = generate_progress_narrative(historical_sessions, num_sessions=5, min_sessions=3)
     
     print(f"\nHas Narrative: {narrative['has_narrative']}")
-    print(f"\nNarrative Summary:")
+    print("\nNarrative Summary:")
     print(f"{narrative['narrative_summary']}")
     
     # Should still generate narrative from available data

@@ -64,7 +64,6 @@ def render_dashboard(session_data, streak):
     session_type = session_data.get('session_type', 'Not available')
     intensity = session_data.get('intensity', 'Not available')
     focus_areas = session_data.get('focus_areas', [])
-    avoid_areas = session_data.get('avoid_areas', [])
     
     col1, col2 = st.columns([1, 1])
     
