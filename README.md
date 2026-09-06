@@ -43,8 +43,16 @@ coach_ai/
 ├── streamlit_app.py       # Dashboard entry point (router only)
 ├── requirements.txt       # Ranged dependencies
 ├── requirements.lock      # Pinned, CI-verified versions
+├── docs/                  # Feature docs by topic; start at docs/INDEX.md
+├── BUILD_PLAN.md          # Phased roadmap
 └── README.md
 ```
+
+## Documentation
+
+Feature and design docs live under `docs/`, grouped by topic. Start at
+[docs/INDEX.md](docs/INDEX.md). Implementation change logs from earlier phases
+are kept under `docs/archive/`.
 
 ## Installation
 
@@ -135,7 +143,7 @@ coach_ai/
    - Ask questions about technique, metrics, training
    - Get AI-powered explanations grounded in KB + your data
    - **Strict Grounding (Recommended)**: Prevents LLM hallucination by blocking low-confidence retrievals
-   - See detailed documentation in `OLLAMA_SETUP.md` and `RAG_SYSTEM.md`
+   - See detailed documentation in `docs/guides/OLLAMA_SETUP.md` and `docs/rag/RAG_SYSTEM.md`
 
 #### RAG Strict Grounding Policy
 
@@ -175,7 +183,7 @@ Configuration files let you customize:
 - Phase names and descriptions
 - Contact detection methods
 
-See `CONFIG.md` for full documentation and examples for other sports (golf, baseball, etc.).
+See `docs/guides/CONFIG.md` for full documentation and examples for other sports (golf, baseball, etc.).
 
 ### Individual Scripts
 
@@ -261,7 +269,7 @@ serve_weights = get_stroke_phase_weights('serve')
 
 ✅ **100% preserved** - Default stroke type is 'backhand', maintaining all existing behavior.
 
-See `STROKE_ABSTRACTION.md` for complete documentation.
+See `docs/analysis/STROKE_ABSTRACTION.md` for complete documentation.
 
 ## 🏃 Movement & Footwork Intelligence (Phase 2.2)
 
@@ -319,7 +327,7 @@ assessment = assess_movement_quality('split_step_timing', 0.12)
 
 ✅ **100% preserved** - Movement metrics are optional, system works without them.
 
-See `MOVEMENT_INTELLIGENCE.md` for complete documentation.
+See `docs/analysis/MOVEMENT_INTELLIGENCE.md` for complete documentation.
 
 ## ⏱️ Rally & Fatigue Intelligence (Phase 2.3)
 
@@ -389,7 +397,7 @@ result = classify_issue_with_fatigue_context(
 
 ✅ **100% preserved** - Rally/fatigue analysis is optional, system works without it.
 
-See `RALLY_FATIGUE_INTELLIGENCE.md` for complete documentation.
+See `docs/analysis/RALLY_FATIGUE_INTELLIGENCE.md` for complete documentation.
 
 ## 📹 CV-Based Movement Extraction (Phase 3.1)
 
@@ -454,7 +462,7 @@ if metrics['recovery_time']['confidence'] > 0.5:
 
 ✅ **100% preserved** - All CV extraction is optional, pipeline works without it.
 
-See `CV_MOVEMENT_EXTRACTION.md` for complete documentation.
+See `docs/analysis/CV_MOVEMENT_EXTRACTION.md` for complete documentation.
 
 ## 🎯 Match Readiness Intelligence (Phase 4.1)
 
@@ -527,7 +535,7 @@ Coach AI now includes **Match Readiness Intelligence** - a synthesis layer that 
 
 Match readiness appears automatically in your coaching report when sufficient data is available. The system gracefully reweights components if some data is missing.
 
-See `MATCH_READINESS_INTELLIGENCE.md` for complete documentation.
+See `docs/coaching/MATCH_READINESS_INTELLIGENCE.md` for complete documentation.
 
 ## 📋 Training Load & Session Planning (Phase 4.2)
 
@@ -596,7 +604,7 @@ Can include conditioning and point play.
 
 Training load recommendations appear automatically in your coaching report when sufficient data is available. The system prioritizes safety (fatigue overrides readiness) and provides conservative guidance when data is limited.
 
-See `TRAINING_LOAD_PLANNING.md` for complete documentation.
+See `docs/coaching/TRAINING_LOAD_PLANNING.md` for complete documentation.
 
 ## 📊 Player Baseline & Personalization (Phase 5.1)
 
@@ -677,7 +685,7 @@ Coach AI now includes **Player Baseline & Personalization** - aggregates your hi
 
 Baselines appear automatically in your coaching report when you have 3+ historical sessions. The system scans the `outputs/` directory and computes baselines from your session history.
 
-See `PLAYER_BASELINE_PERSONALIZATION.md` for complete documentation.
+See `docs/coaching/PLAYER_BASELINE_PERSONALIZATION.md` for complete documentation.
 
 ## 📈 Progress Narratives & Coach Summaries (Phase 5.2)
 
@@ -764,7 +772,7 @@ and trust the process.
 
 Progress narratives appear automatically in your coaching report when you have 3+ historical sessions. The system analyzes your recent trends and provides encouraging, actionable feedback.
 
-See `PROGRESS_NARRATIVES.md` for complete documentation.
+See `docs/coaching/PROGRESS_NARRATIVES.md` for complete documentation.
 
 ## Troubleshooting
 
