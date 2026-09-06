@@ -37,6 +37,13 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-dev.txt
 
+      # Fail loudly here rather than letting downstream scripts swallow an
+      # ImportError into a "not installed" message.
+      - name: Verify imports
+        run: |
+          pip freeze
+          python -c "import mediapipe, cv2, sentence_transformers, ultralytics; print('imports ok')"
+
       # The RAG index artifacts are gitignored; rebuild them so retrieval tests
       # exercise the real ensemble path. The embedding model is cached between runs.
       - name: Cache sentence-transformer model
