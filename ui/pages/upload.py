@@ -4,7 +4,7 @@ Upload -> Analyze -> Result loop for Coach AI.
 
 Renders the "New Analysis" page: the user uploads a stroke video, picks the
 stroke type and a reference, and the full analysis pipeline runs in-app. Kept as
-a standalone module so streamlit_app.py stays focused on the read/dashboard side.
+its own page module so streamlit_app.py stays a thin router.
 
 Uses the decomposed pipeline API: run_pipeline(user_video, ref_video, stroke).
 """
@@ -17,7 +17,8 @@ import sys
 
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).parent))
+# Project root is two levels up (ui/pages/upload.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # Import defensively so the app still loads (and can show a friendly error) even
 # if the heavy pipeline dependencies (mediapipe, opencv, ...) aren't installed.
@@ -222,8 +223,15 @@ def render_upload_page():
         st.error("Analysis did not complete. Check the terminal running Streamlit for details.")
         return
 
-    from streamlit_app import get_latest_session
-    st.session_state["upload_last_session"] = get_latest_session()
+    from ui.data import get_latest_session
+    from ui.users import DEFAULT_USER, link_session_to_user
+
+    new_session = get_latest_session()
+    if new_session:
+        user_id = st.session_state.get("current_user", DEFAULT_USER)
+        link_session_to_user(user_id, new_session, f"{stroke.title()} {datetime.now():%b %d %H:%M}")
+        st.session_state.selected_session = new_session
+    st.session_state["upload_last_session"] = new_session
     st.balloons()
     st.rerun()
 
@@ -231,7 +239,7 @@ def render_upload_page():
 # ── sub-components ─────────────────────────────────────────────────────────────
 
 def _show_results(session_id):
-    from streamlit_app import load_report_data
+    from ui.data import load_report_data
 
     st.markdown("## ✅ Analysis Complete!")
     st.markdown("---")
