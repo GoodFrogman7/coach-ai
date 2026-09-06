@@ -59,6 +59,15 @@ coach_ai/
    pip install -r requirements.txt
    ```
 
+   For the exact, CI-verified versions (Python 3.10), use the lock file instead.
+   Install CPU-only torch first so the ML libraries do not pull the CUDA build:
+   ```bash
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+   pip install -r requirements.lock
+   ```
+   After editing `requirements.txt`, regenerate the lock with `pip freeze > requirements.lock`
+   from a clean environment and keep the header comment.
+
 ## Usage
 
 ### Quick Start
