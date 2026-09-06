@@ -18,7 +18,7 @@ except ImportError:
 USER_VIDEO = "data/user/input.mp4"
 
 
-REF_VIDEO = "data/reference/djokovic_backhand.mp4"
+REF_VIDEO = "data/reference/backhand/djokovic_backhand.mp4"
 
 
 OUTPUT_USER_OVERLAY = "outputs/overlay_user.mp4"

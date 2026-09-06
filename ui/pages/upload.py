@@ -24,13 +24,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # if the heavy pipeline dependencies (mediapipe, opencv, ...) aren't installed.
 try:
     from vision.compare import run_pipeline, validate_video
+    from vision.reference_library import resolve_reference
 except Exception:
     run_pipeline = None
     validate_video = None
+    resolve_reference = None
 
 # ── config ────────────────────────────────────────────────────────────────────
 STROKE_OPTIONS = ["backhand", "forehand", "serve", "volley", "overhead"]
-DEFAULT_REFERENCE = "data/reference/djokovic_backhand.mp4"
+HANDED_OPTIONS = ["right", "left"]
+DEFAULT_REFERENCE = "data/reference/backhand/djokovic_backhand.mp4"
 UPLOAD_DIR = Path("data/user/uploads")
 
 
@@ -152,7 +155,14 @@ def render_upload_page():
 
     # ── 2. stroke type ────────────────────────────────────────────────────────
     st.subheader("2. Stroke type")
-    stroke = st.selectbox("Which stroke is this?", STROKE_OPTIONS, index=0)
+    col_s, col_h = st.columns(2)
+    with col_s:
+        stroke = st.selectbox("Which stroke is this?", STROKE_OPTIONS, index=0)
+    with col_h:
+        handed = st.selectbox("Dominant hand", HANDED_OPTIONS, index=0,
+                              help="Left-handers are mirrored to compare against right-handed pros.")
+
+    library_ref = resolve_reference(stroke, handed) if resolve_reference else None
 
     # ── 3. reference ──────────────────────────────────────────────────────────
     st.subheader("3. Reference")
@@ -168,8 +178,12 @@ def render_upload_page():
             type=["mp4", "mov", "avi", "mkv", "m4v"],
             key="ref_video_upload",
         )
+    elif library_ref:
+        st.caption(f"Using library reference: {library_ref.get('player', 'pro')} "
+                   f"({library_ref.get('handedness', 'right')}-handed {stroke})")
     elif Path(DEFAULT_REFERENCE).exists():
-        st.caption(f"Using built-in reference: {Path(DEFAULT_REFERENCE).name}")
+        st.warning(f"No {stroke} clip in the reference library; the built-in backhand "
+                   f"reference ({Path(DEFAULT_REFERENCE).name}) will be used.")
     else:
         st.warning(
             f"Built-in reference not found at `{DEFAULT_REFERENCE}`. "
@@ -195,7 +209,7 @@ def render_upload_page():
             return
         ref_path = _save_upload(ref_file, "ref")
     else:
-        ref_path = DEFAULT_REFERENCE
+        ref_path = library_ref["path"] if library_ref else DEFAULT_REFERENCE
 
     # Validate both videos are readable before the (slow) pipeline runs.
     ok_u, msg_u = validate_video(user_path, role="user video")
@@ -209,7 +223,8 @@ def render_upload_page():
 
     with st.spinner("Analyzing your stroke — pose extraction + reference comparison (~1-3 min)…"):
         try:
-            success = run_pipeline(user_video=user_path, ref_video=ref_path, stroke=stroke)
+            success = run_pipeline(user_video=user_path, ref_video=ref_path, stroke=stroke,
+                                   handed=handed)
         except Exception as exc:
             st.error(f"❌ Analysis failed: {exc}")
             st.markdown(

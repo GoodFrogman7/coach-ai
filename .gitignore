@@ -52,3 +52,7 @@ rag/embedding_meta.json
 .env
 .env.*
 *.key
+
+# ---- Coach AI: reference pose cache ----
+# Cached MediaPipe landmarks for reference clips (regenerated on demand).
+data/reference/**/cache/

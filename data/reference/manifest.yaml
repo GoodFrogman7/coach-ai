@@ -1,0 +1,27 @@
+# Reference clip library.
+#
+# One entry per professional reference clip. The pipeline picks the best clip
+# for the requested stroke and handedness; when no clip exists for a stroke it
+# falls back to range comparison against the stroke profile instead.
+#
+# Clips themselves are gitignored (see .gitignore). Paths are relative to this
+# file. Add a clip by dropping it under data/reference/<stroke>/ and listing it
+# here.
+#
+# Fields
+#   stroke:       backhand | forehand | serve | volley | overhead
+#   path:         relative path to the clip
+#   player:       who is hitting
+#   handedness:   right | left  (the player's dominant hand)
+#   camera:       side | front | behind | broadcast
+#   fps:          nominal frame rate of the clip
+#   notes:        anything a coach should know about the clip
+
+clips:
+  - stroke: backhand
+    path: backhand/djokovic_backhand.mp4
+    player: Novak Djokovic
+    handedness: right
+    camera: side
+    fps: 30
+    notes: Two-handed backhand, baseline rally, side-on view.

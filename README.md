@@ -31,7 +31,7 @@ coach_ai/
 │   └── compare.py         # Full pipeline + report generation
 ├── data/
 │   ├── user/              # Place your video here (input.mp4)
-│   └── reference/         # Reference videos (djokovic_backhand.mp4)
+│   └── reference/         # Pro clips by stroke + manifest.yaml (see Reference library)
 ├── kb/                    # Knowledge base markdown files
 ├── rag/                   # RAG system (indexing, retrieval, LLM)
 ├── outputs/               # Generated outputs (one folder per session)
@@ -88,7 +88,8 @@ are kept under `docs/archive/`.
 
 1. **Add your videos**:
    - Place your backhand video at: `data/user/input.mp4`
-   - Place a reference video at: `data/reference/djokovic_backhand.mp4`
+   - Place a reference video at: `data/reference/backhand/djokovic_backhand.mp4`
+     (or add your own clip to `data/reference/manifest.yaml`)
 
 2. **Run the analysis**:
    ```bash
@@ -162,6 +163,25 @@ Coach AI uses a **production-safe grounding policy** to prevent hallucination:
 - All questions/answers logged to `outputs/{session_id}/qa_log.json`
 - View recent questions in sidebar
 - Click to re-display saved answers (no LLM call)
+
+### Reference library and handedness
+
+Professional reference clips live under `data/reference/<stroke>/` and are listed in
+`data/reference/manifest.yaml` with the player, handedness, camera angle, and fps.
+The pipeline picks the clip for the requested stroke and dominant hand:
+
+```bash
+python vision/compare.py --stroke forehand --handed left
+```
+
+- `--stroke` selects the reference clip and the stroke's phase weights.
+- `--handed left` mirrors your landmarks so a left-hander is compared against a
+  right-handed pro (and vice versa). The report records both in its header.
+- Reference pose landmarks are cached under `data/reference/<stroke>/cache/`, keyed by
+  the clip's content hash and the MediaPipe version, so a reference clip is only
+  processed once.
+- If no clip exists for a stroke, the pipeline says so and falls back to the backhand
+  clip. Add a clip by dropping it in the stroke folder and listing it in the manifest.
 
 ### Sport-Agnostic Configuration (Optional)
 
