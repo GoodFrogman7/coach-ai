@@ -91,12 +91,25 @@ def get_drill_knowledge_base() -> dict:
                     'description': 'Practice split-step followed by balanced backhand stance, hold for 3 seconds',
                     'target_metrics': ['left_knee_angle', 'right_knee_angle'],
                     'target_phases': ['preparation', 'load'],
+                    'strokes': ['backhand'],
                     'intensity': {
                         'light': '2 sets × 10 reps',
                         'moderate': '3 sets × 15 reps',
                         'intensive': '5 sets × 20 reps with weights'
                     },
                     'rationale': 'Builds lower body stability and balance'
+                },
+                {
+                    'name': 'Loaded Squat Holds',
+                    'description': 'Sink into an athletic squat (knees at roughly 120-140 degrees), hold for 5 seconds, then drive up into a shadow stroke',
+                    'target_metrics': ['left_knee_angle', 'right_knee_angle'],
+                    'target_phases': ['preparation', 'load'],
+                    'intensity': {
+                        'light': '2 sets × 8 holds',
+                        'moderate': '3 sets × 10 holds',
+                        'intensive': '4 sets × 12 holds with a resistance band'
+                    },
+                    'rationale': 'Trains the knee bend every stroke loads from, without stroke-specific footwork'
                 }
             ]
         },
@@ -456,6 +469,19 @@ def get_drill_knowledge_base() -> dict:
     }
 
 
+def drills_for_stroke(drills: list, stroke: str = None) -> list:
+    """
+    Keep drills that apply to a stroke.
+
+    A drill with no 'strokes' key is general. A drill tagged with strokes is
+    kept only when the requested stroke is one of them. stroke=None keeps all.
+    """
+    if not stroke:
+        return list(drills)
+    stroke = stroke.lower().strip()
+    return [d for d in drills if not d.get('strokes') or stroke in d['strokes']]
+
+
 def map_metric_to_drill_category(metric_name: str) -> str:
     """
     Map a biomechanical or movement metric to its corresponding drill category.
@@ -503,7 +529,8 @@ def map_metric_to_drill_category(metric_name: str) -> str:
 
 def generate_adaptive_drill_recommendations(
     adaptive_focus: dict,
-    drill_kb: dict = None
+    drill_kb: dict = None,
+    stroke: str = None
 ) -> dict:
     """
     Generate intelligent drill recommendations based on adaptive coaching priorities.
@@ -516,12 +543,16 @@ def generate_adaptive_drill_recommendations(
     Args:
         adaptive_focus: Output from generate_adaptive_coaching_focus()
         drill_kb: Drill knowledge base (optional, uses default if None)
+        stroke: Only drills that apply to this stroke are considered
         
     Returns:
         Dictionary with drill recommendations by priority level
     """
     if drill_kb is None:
         drill_kb = get_drill_knowledge_base()
+    if stroke:
+        drill_kb = {cat: {**spec, 'drills': drills_for_stroke(spec.get('drills', []), stroke)}
+                    for cat, spec in drill_kb.items()}
     
     recommendations = {
         'critical_drills': [],

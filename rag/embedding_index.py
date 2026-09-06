@@ -10,6 +10,11 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict
 
+try:
+    from rag.kb_metadata import parse_front_matter
+except ImportError:  # run as a script from rag/ (python rag/index_kb.py)
+    from kb_metadata import parse_front_matter
+
 # Try to import sentence-transformers
 try:
     from sentence_transformers import SentenceTransformer
@@ -40,6 +45,10 @@ def load_markdown_files(kb_dir: str = "kb") -> List[Dict[str, str]]:
             with open(md_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
+            # Optional front matter (strokes: [...]) is stripped from the text
+            # and carried as metadata on every chunk.
+            meta, content = parse_front_matter(content)
+
             # Extract title from first # heading
             title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
             title = title_match.group(1) if title_match else md_file.stem.replace('_', ' ').title()
@@ -47,7 +56,8 @@ def load_markdown_files(kb_dir: str = "kb") -> List[Dict[str, str]]:
             documents.append({
                 'filename': md_file.name,
                 'title': title,
-                'content': content
+                'content': content,
+                'strokes': meta.get('strokes', []),
             })
         except Exception as e:
             print(f"Error loading {md_file}: {e}")
@@ -104,7 +114,8 @@ def chunk_documents(documents: List[Dict[str, str]],
                 'filename': doc['filename'],
                 'title': doc['title'],
                 'chunk_id': i,
-                'text': chunk
+                'text': chunk,
+                'strokes': doc.get('strokes', []),
             })
     
     print(f"Created {len(chunked_docs)} chunks from {len(documents)} documents")

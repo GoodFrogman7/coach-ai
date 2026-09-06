@@ -121,6 +121,7 @@ class EmbeddingRetriever:
                     'title': doc['title'],
                     'filename': doc['filename'],
                     'chunk_id': doc['chunk_id'],
+                    'strokes': doc.get('strokes', []),
                     'score': score  # Cosine similarity (0..1)
                 })
             

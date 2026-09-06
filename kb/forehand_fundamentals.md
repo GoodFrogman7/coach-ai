@@ -1,3 +1,6 @@
+---
+strokes: [forehand]
+---
 # Forehand Fundamentals
 
 ## Overview
