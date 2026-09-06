@@ -98,6 +98,7 @@ class KnowledgeRetriever:
                     'title': doc['title'],
                     'filename': doc['filename'],
                     'chunk_id': doc['chunk_id'],
+                    'strokes': doc.get('strokes', []),
                     'score': score
                 })
             
@@ -239,7 +240,8 @@ def retrieve_context(query: str,
                      top_k: int = 5,
                      index_dir: str = "rag",
                      use_embeddings: bool = True,
-                     session_memory=None) -> Dict:
+                     session_memory=None,
+                     stroke: str = None) -> Dict:
     """
     Unified retrieval function supporting TF-IDF, embeddings, or ensemble.
     Now includes intent classification and session memory for smarter retrieval.
@@ -250,6 +252,9 @@ def retrieve_context(query: str,
         index_dir: Index directory
         use_embeddings: Whether to use embeddings if available
         session_memory: Optional SessionMemory instance for tracking queries
+        stroke: The session's stroke. Chunks tagged with it are boosted and
+            chunks tagged with a different stroke are dropped (see
+            rag.kb_metadata.boost_for_stroke). None means no re-ranking.
         
     Returns:
         Dict with 'results', 'confidence', 'confidence_explanation', 
@@ -317,6 +322,13 @@ def retrieve_context(query: str,
         }
         method_used = "tfidf"
     
+    # Re-rank for the session's stroke (confidence above was computed on the
+    # raw scores so the boost cannot manufacture confidence).
+    if stroke:
+        from .kb_metadata import boost_for_stroke
+        results = boost_for_stroke(results, stroke)[:top_k]
+        stats['stroke'] = stroke
+
     # Add intent to retrieval stats
     stats['intent'] = intent
     stats['intent_description'] = intent_description

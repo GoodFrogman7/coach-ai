@@ -1,3 +1,6 @@
+---
+strokes: [serve]
+---
 # Serve Fundamentals
 
 ## Overview

@@ -1,3 +1,6 @@
+---
+strokes: [backhand]
+---
 # Two-Handed Backhand Fundamentals
 
 ## Overview

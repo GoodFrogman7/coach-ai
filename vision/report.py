@@ -381,7 +381,7 @@ This ensures you work on issues that are:
         report += "---\n\n"
         
         # Recommended Training Interventions section
-        drill_recommendations = generate_adaptive_drill_recommendations(adaptive_focus)
+        drill_recommendations = generate_adaptive_drill_recommendations(adaptive_focus, stroke=stroke_key)
         
         report += """## 💪 Recommended Training Interventions
 

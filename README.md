@@ -188,6 +188,9 @@ python vision/compare.py --stroke forehand --handed left
   frame-for-frame comparison instead.
 - Coaching cues and drills are worded per stroke (`vision/cue_templates.py`); the backhand
   wording is unchanged and guarded by `test_report_snapshot.py`.
+- Knowledge-base docs can declare `strokes: [forehand]` in front matter. Ask Coach boosts
+  docs tagged with the session's stroke and drops docs tagged with a different one; untagged
+  docs apply to every stroke. Drills in `vision/drills.py` can carry a `strokes` list the same way.
 
 ### Sport-Agnostic Configuration (Optional)
 

@@ -69,6 +69,14 @@ def load_report_data(session_id: str, base_dir: str = "outputs") -> dict:
             content = f.read()
         
         data = {'session_id': session_id, 'raw_content': content}
+
+        # Session header written by the pipeline (stroke, handedness, comparison).
+        header = re.match(r'---\s*\n(.*?)\n---', content, re.DOTALL)
+        if header:
+            for key in ('stroke', 'handedness', 'comparison'):
+                m = re.search(r'^' + key + r':\s*(\S+)', header.group(1), re.MULTILINE)
+                if m:
+                    data[key] = m.group(1)
         
         # Extract technique score (updated format)
         match = re.search(r'Overall Technique Score:\s*(\d+\.?\d*)/100', content)

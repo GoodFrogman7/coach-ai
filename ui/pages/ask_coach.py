@@ -3,7 +3,7 @@ Ask Coach page: RAG-grounded Q&A over the knowledge base and session.
 """
 import streamlit as st
 
-from ui.data import get_recent_sessions
+from ui.data import get_recent_sessions, load_report_data
 
 
 @st.cache_data(show_spinner=False)
@@ -13,7 +13,8 @@ def get_cached_answer(
     mode: str,
     depth: str,
     strict_grounding: bool,
-    base_dir: str = "outputs"
+    base_dir: str = "outputs",
+    stroke: str = None,
 ):
     """
     Cached wrapper for retrieval + LLM answer generation.
@@ -31,7 +32,8 @@ def get_cached_answer(
         question, 
         top_k=5, 
         use_embeddings=True,
-        session_memory=None  # Don't use session_memory in cached function
+        session_memory=None,  # Don't use session_memory in cached function
+        stroke=stroke,
     )
     retrieved_chunks = retrieval_result['results']
     confidence = retrieval_result['confidence']
@@ -239,13 +241,15 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                 # Call cached answer function
                 with st.spinner("🤔 Thinking..."):
                     # Get cached answer (will only call LLM once per unique combination)
+                    session_info = load_report_data(selected_session, base_dir) if selected_session else None
                     result = get_cached_answer(
                         question=current_question,
                         session_id=selected_session or "",
                         mode=mode,
                         depth=depth,
                         strict_grounding=strict_grounding,
-                        base_dir=base_dir
+                        base_dir=base_dir,
+                        stroke=(session_info or {}).get('stroke'),
                     )
                     
                     # Mark as cached if this is not first call
