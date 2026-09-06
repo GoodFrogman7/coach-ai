@@ -2,7 +2,6 @@
 Ask Coach page: RAG-grounded Q&A over the knowledge base and session.
 """
 import streamlit as st
-import sys
 
 from ui.data import get_recent_sessions
 
@@ -87,12 +86,10 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
     
     # Import RAG modules
     try:
-        from rag import retrieve_context, ask_coach, extract_session_summary, log_qa_interaction, get_recent_questions, load_qa_log
+        from rag import log_qa_interaction, get_recent_questions
         from rag.session_memory import get_or_create_session_memory
-        rag_available = True
     except ImportError:
         st.error("⚠️ RAG system not available. Please ensure the `rag` module is installed.")
-        rag_available = False
         return
     
     # Initialize session memory (session-only, no persistence)
@@ -155,7 +152,7 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                         st.rerun()
                     
                     # Show preview in expander
-                    with st.expander(f"Preview", expanded=False):
+                    with st.expander("Preview", expanded=False):
                         st.caption(f"**Asked:** {qa['timestamp'][:19]}")
                         st.caption(f"**Confidence:** {qa['retrieval_confidence']}")
                         st.caption(f"**Mode:** {qa['mode']}")
@@ -223,7 +220,7 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                     st.rerun()
         
         # Text input - SINGLE SOURCE OF TRUTH using session_state
-        question = st.text_input(
+        st.text_input(
             "Or type your own question:",
             value=st.session_state.user_question,
             placeholder="e.g., Why is my hip rotation score low?",
@@ -466,7 +463,7 @@ def render_ask_coach(base_dir="outputs", selected_session=None):
                             if result2.returncode == 0:
                                 st.success("✓ Embedding index rebuilt")
                             else:
-                                st.warning(f"Embedding indexing not available (sentence-transformers may not be installed)")
+                                st.warning("Embedding indexing not available (sentence-transformers may not be installed)")
                             
                             st.success("🎉 Index rebuild complete! Refresh the page to use the new index.")
                             

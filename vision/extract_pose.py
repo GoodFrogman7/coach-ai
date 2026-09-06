@@ -6,7 +6,6 @@ Load a video, run MediaPipe Pose, save per-frame landmarks to a DataFrame.
 import cv2
 import mediapipe as mp
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 

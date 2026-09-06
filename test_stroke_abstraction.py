@@ -201,19 +201,19 @@ def test_real_world_comparison():
     print(f"Backhand expected range: {backhand_hip[0]}-{backhand_hip[1]}°")
     print(f"Forehand expected range: {forehand_hip[0]}-{forehand_hip[1]}°")
     
-    print(f"\nPlayer's measured hip rotation: 165°")
+    print("\nPlayer's measured hip rotation: 165°")
     
     # Check against backhand
     if backhand_hip[0] <= 165 <= backhand_hip[1]:
-        print(f"  ✅ Within backhand range (good technique)")
+        print("  ✅ Within backhand range (good technique)")
     else:
-        print(f"  ⚠️  Outside backhand range (needs work)")
+        print("  ⚠️  Outside backhand range (needs work)")
     
     # Check against forehand
     if forehand_hip[0] <= 165 <= forehand_hip[1]:
-        print(f"  ✅ Within forehand range (good technique)")
+        print("  ✅ Within forehand range (good technique)")
     else:
-        print(f"  ⚠️  Outside forehand range (needs more rotation)")
+        print("  ⚠️  Outside forehand range (needs more rotation)")
     
     print("\n💡 Insight: Same measurement, different interpretation based on stroke!")
     print("   This is why stroke-aware thresholds are essential.")
@@ -237,7 +237,7 @@ def main():
         print("   Stroke Abstraction Layer is ready for integration.\n")
         
     except Exception as e:
-        print(f"\n❌ Test suite failed with error:")
+        print("\n❌ Test suite failed with error:")
         print(f"   {str(e)}")
         import traceback
         traceback.print_exc()

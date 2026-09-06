@@ -12,8 +12,7 @@ pipeline orchestration (run_pipeline) and re-exports every moved name so that
 import sys
 import json
 from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,7 +21,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from vision.extract_pose import extract_pose_landmarks, save_landmarks
+from vision.extract_pose import extract_pose_landmarks
 from vision.overlay_pose import create_overlay_video
 from vision.features import (
     compute_features_from_landmarks,
@@ -48,7 +47,7 @@ from vision.ball_tracking import *           # noqa: F401,F403
 from vision.report import *                  # noqa: F401,F403
 # Underscore-prefixed helpers are not picked up by `import *`; re-export explicitly
 # because existing callers (e.g. test_progress_narrative.py) import them directly.
-from vision.config_session import (
+from vision.config_session import (  # noqa: F401
     USER_VIDEO, REF_VIDEO, OUTPUT_USER_OVERLAY, OUTPUT_REF_OVERLAY,
     OUTPUT_USER_FEATURES, OUTPUT_REF_FEATURES, OUTPUT_REPORT,
 )
@@ -507,7 +506,7 @@ def run_pipeline(config_path: str = None, user_video: str = None,
                 print(f"  -> Insufficient data for baseline: {reason}")
                 progress_narrative = None
         else:
-            print(f"  -> No historical sessions found")
+            print("  -> No historical sessions found")
             progress_narrative = None
     
     except Exception as e:
@@ -546,7 +545,6 @@ def run_pipeline(config_path: str = None, user_video: str = None,
                 if session_id and ball_trajectory:
                     try:
                         from vision.broadcast_overlay import (
-                            generate_player_heatmap,
                             generate_court_zones_heatmap,
                             generate_speed_distribution_chart
                         )
@@ -702,7 +700,7 @@ def run_pipeline(config_path: str = None, user_video: str = None,
     if session_id:
         print(f"\n[SESSION] All outputs saved to: {output_paths['output_dir']}")
     
-    print(f"\nOutputs generated:")
+    print("\nOutputs generated:")
     print(f"  • {output_paths['overlay_user']}")
     print(f"  • {output_paths['overlay_ref']}")
     print(f"  • {output_paths['features_user']}")

@@ -12,7 +12,6 @@ This script validates:
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
-import numpy as np
 from vision.compare import compute_match_readiness
 
 

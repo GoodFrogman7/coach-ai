@@ -56,6 +56,9 @@ jobs:
           python rag/index_kb.py
           python rag/embedding_index.py
 
+      - name: Lint (ruff, rules from ruff.toml)
+        run: ruff check .
+
       - name: Run tests
         env:
           PYTHONIOENCODING: utf-8

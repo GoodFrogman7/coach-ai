@@ -9,8 +9,7 @@ IMPORTANT: This is a pure, deterministic, rule-based classifier.
 It uses NO machine learning and makes NO LLM calls.
 """
 
-import re
-from typing import Dict, List, Tuple
+from typing import Dict
 
 
 # Intent definitions and their keywords/patterns

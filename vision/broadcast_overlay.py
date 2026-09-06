@@ -6,16 +6,13 @@ Adapted from Tennis Pro Analytics repository.
 
 import cv2
 import numpy as np
-from typing import Tuple, List, Optional, Dict
+from typing import Tuple, List, Optional
 from collections import deque
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-import seaborn as sns
-from pathlib import Path
 
-from vision.ball_tracking_models import Ball, Player, RallyStatistics, SpeedClassifier
+from vision.ball_tracking_models import Ball, RallyStatistics, SpeedClassifier
 
 
 class VisualizationEngine:
@@ -360,7 +357,7 @@ def create_broadcast_overlay(
     frame_count = 0
     current_speed = 0.0
     
-    print(f"\n🎬 Creating broadcast overlay...")
+    print("\n🎬 Creating broadcast overlay...")
     print(f"   Resolution: {w}x{h} @ {fps}fps")
     print(f"   Total Frames: {total_frames}")
     

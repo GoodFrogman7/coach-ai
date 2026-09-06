@@ -6,16 +6,9 @@ Optional YOLO-based ball detection and trajectory statistics.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
 from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
-import numpy as np
-import pandas as pd
+from typing import List, Dict
+import cv2
 
 def is_ball_tracking_available() -> bool:
     """Check if YOLO model is available for ball tracking."""
@@ -37,14 +30,14 @@ def run_ball_detection(video_path: str, model_path: str = "models/best.pt", fps:
     """
     try:
         from ultralytics import YOLO
-        from vision.ball_tracking_models import Ball, CourtZoneAnalyzer
+        from vision.ball_tracking_models import Ball
         import math
         
         if not Path(model_path).exists():
             print(f"  [WARN] Ball tracking model not found at {model_path}")
             return []
         
-        print(f"\n[BALL TRACKING] Initializing YOLOv8...")
+        print("\n[BALL TRACKING] Initializing YOLOv8...")
         model = YOLO(model_path)
         
         # Open video to get dimensions
@@ -53,8 +46,6 @@ def run_ball_detection(video_path: str, model_path: str = "models/best.pt", fps:
             print(f"  [WARN] Cannot open video for ball tracking: {video_path}")
             return []
         
-        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
         

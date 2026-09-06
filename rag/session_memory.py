@@ -334,7 +334,7 @@ def test_session_memory():
         # Check for recurring issues
         issue_detection = memory.detect_recurring_issues()
         if issue_detection['has_recurring_issue']:
-            print(f"  [RECURRING ISSUE DETECTED]")
+            print("  [RECURRING ISSUE DETECTED]")
             print(f"  Topics: {', '.join(issue_detection['issue_topics'])}")
         
         print()

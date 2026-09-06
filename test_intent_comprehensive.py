@@ -8,7 +8,6 @@ This test validates:
 4. All components are backward compatible
 """
 
-import json
 from rag.intent_classifier import classify_intent, get_intent_context
 from rag.retrieve import retrieve_context
 

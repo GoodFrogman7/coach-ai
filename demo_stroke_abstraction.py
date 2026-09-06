@@ -17,8 +17,7 @@ sys.path.insert(0, 'vision')
 
 from compare import (
     get_stroke_aware_threshold,
-    get_stroke_phase_weights,
-    STROKE_PROFILES
+    get_stroke_phase_weights
 )
 
 
@@ -64,8 +63,8 @@ Question: Is this good technique or does it need improvement?
     print(f"Generic threshold: {generic_threshold}°")
     print(f"Player's rotation: {measured_hip_rotation}°")
     print(f"Deviation: {measured_hip_rotation - generic_threshold}° (below threshold)")
-    print(f"\n⚠️  Coaching feedback: 'Increase hip rotation'")
-    print(f"❌ Problem: This might be INCORRECT advice depending on the stroke!")
+    print("\n⚠️  Coaching feedback: 'Increase hip rotation'")
+    print("❌ Problem: This might be INCORRECT advice depending on the stroke!")
     
     # With stroke awareness
     print_section("✅ WITH Stroke Awareness (New Approach)")
@@ -79,7 +78,7 @@ Question: Is this good technique or does it need improvement?
         # Determine if within range
         if range_min <= measured_hip_rotation <= range_max:
             status = "✅ GOOD"
-            feedback = f"Maintain current technique"
+            feedback = "Maintain current technique"
         elif measured_hip_rotation < range_min:
             status = "⚠️  LOW"
             deficit = range_min - measured_hip_rotation

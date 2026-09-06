@@ -121,7 +121,7 @@ print(f"Affected metrics: {', '.join(fatigue_result['affected_metrics'])}")
 print(f"Recommendation: {fatigue_result['recommendation']}")
 
 if fatigue_result['fatigue_signals']:
-    print(f"\nFatigue patterns:")
+    print("\nFatigue patterns:")
     for signal in fatigue_result['fatigue_signals']:
         print(f"  • {signal}")
 
@@ -151,7 +151,7 @@ classification = classify_issue_with_fatigue_context(
     fatigue_inference=fatigue_inference
 )
 
-print(f"Metric: recovery_time")
+print("Metric: recovery_time")
 print(f"Classification: {classification['classification']}")
 print(f"Fatigue flag: {classification['fatigue_flag']}")
 print(f"Intervention type: {classification['intervention_type']}")
@@ -172,7 +172,7 @@ sparse_metrics = {
 
 fatigue_result = infer_fatigue_from_biomechanics(sparse_metrics)
 
-print(f"Data points: 2")
+print("Data points: 2")
 print(f"Fatigue score: {fatigue_result['fatigue_score']:.1f}/100")
 print(f"Confidence: {fatigue_result['confidence']}")
 

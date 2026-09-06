@@ -371,5 +371,5 @@ def calculate_achievements(base_dir: str = "outputs") -> dict:
             })
         
         return achievements
-    except Exception as e:
+    except Exception:
         return {'consistency': [], 'improvement': [], 'discipline': []}

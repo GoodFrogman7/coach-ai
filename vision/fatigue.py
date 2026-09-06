@@ -6,16 +6,7 @@ Rally segmentation and fatigue inference from biomechanics.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
-from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
 import numpy as np
-import pandas as pd
 from vision.adaptive import classify_coaching_issue
 
 def segment_session_into_rallies(
@@ -122,8 +113,6 @@ def compute_metric_trajectory(
             'degradation_ratio': 1.0,
             'sample_size': len(metric_values)
         }
-    
-    import numpy as np
     
     values = np.array(metric_values)
     n = len(values)
@@ -355,8 +344,6 @@ def classify_issue_with_fatigue_context(
         'conditioning'
     """
     # Get base classification from existing system
-    from inspect import signature
-    
     # Import the original function (exists in Phase 2.1)
     # We'll call it to get base classification
     base_classification = classify_coaching_issue(

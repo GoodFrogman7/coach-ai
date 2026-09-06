@@ -6,7 +6,6 @@ then calls an LLM to generate explanations (explanation-only, no decision-making
 """
 
 import os
-import json
 from typing import Dict, List, Optional
 import re
 

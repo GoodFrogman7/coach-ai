@@ -6,16 +6,6 @@ Adaptive coaching: issue prioritization and classification.
 Extracted verbatim from compare.py during decomposition (logic unchanged).
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import math
-import re
-from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any, Union
-import numpy as np
-import pandas as pd
 
 def compute_issue_priority_score(
     metric_name: str,
@@ -238,7 +228,6 @@ def generate_adaptive_coaching_focus(
     for cue_data in ranked_cues:
         # Extract cue information
         cue_text = cue_data[0]
-        phase_name = cue_data[1]
         metric_name = cue_data[2]
         deviation = cue_data[3]
         phase = cue_data[4]
